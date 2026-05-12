@@ -1,0 +1,19 @@
+{
+  "name": "test-form-maker",
+  "version": "0.1.0",
+  "description": "Desktop app for taking JSON-defined tests and exporting answers as Markdown for AI review.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "env -u ELECTRON_RUN_AS_NODE electron ."
+  },
+  "keywords": [
+    "electron",
+    "tests",
+    "markdown"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^41.2.1"
+  }
+}

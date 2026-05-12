@@ -1,0 +1,1097 @@
+{
+  "title": "AWS CloudFront and Route 53 Deep Knowledge Test",
+  "description": "A detailed gap-finding test for Amazon CloudFront, Route 53 DNS, and how they work together. Uses fine-grained question types: single_choice, multiple_choice, true_false, short_answer, and long_answer.",
+  "sources": [
+    "https://aws.amazon.com/cloudfront/features/",
+    "https://aws.amazon.com/route53/features/",
+    "https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/",
+    "https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/"
+  ],
+  "tests": [
+    {
+      "id": "cloudfront-core-architecture",
+      "title": "CloudFront Core Architecture",
+      "topic": "CloudFront CDN fundamentals",
+      "instructions": "Answer from memory. For single-choice questions, pick the best answer. For multiple-choice questions, select every correct option. For written questions, explain the mechanism, not just the label.",
+      "questions": [
+        {
+          "id": "cf-purpose",
+          "type": "single_choice",
+          "prompt": "What is the primary job of Amazon CloudFront in a web architecture?",
+          "expectedAnswer": "To deliver content, APIs, and applications through AWS edge locations while reducing latency and origin load",
+          "options": [
+            "To replace the application origin and store all application state at the edge",
+            "To deliver content, APIs, and applications through AWS edge locations while reducing latency and origin load",
+            "To provide recursive DNS resolution for VPC workloads",
+            "To register domain names and issue DNS name servers"
+          ]
+        },
+        {
+          "id": "cf-request-flow",
+          "type": "long_answer",
+          "prompt": "Describe the request path when a viewer requests https://www.example.com/app.js through CloudFront and the object is not already in the nearest edge cache.",
+          "rubric": [
+            "Mentions DNS resolving the viewer-facing name to CloudFront",
+            "Mentions viewer connects to an edge location/POP",
+            "Explains cache lookup and miss",
+            "Mentions regional edge cache and/or origin fetch",
+            "Mentions response cached according to policies and returned to viewer"
+          ]
+        },
+        {
+          "id": "cf-distribution",
+          "type": "short_answer",
+          "prompt": "In CloudFront, what is a distribution?",
+          "expectedAnswer": "A distribution is the CloudFront configuration that defines viewer domains, origins, cache behaviors, security settings, logging, and delivery behavior for content."
+        },
+        {
+          "id": "cf-pop-vs-regional-cache",
+          "type": "single_choice",
+          "prompt": "Which statement best distinguishes CloudFront edge locations from Regional Edge Caches?",
+          "expectedAnswer": "Edge locations serve viewers directly; Regional Edge Caches sit between edge locations and origins to improve cache hit ratio",
+          "options": [
+            "Edge locations serve viewers directly; Regional Edge Caches sit between edge locations and origins to improve cache hit ratio",
+            "Regional Edge Caches serve DNS answers; edge locations only store logs",
+            "Edge locations exist only in AWS Regions; Regional Edge Caches exist only inside VPCs",
+            "There is no difference; the names refer to the same cache layer"
+          ]
+        },
+        {
+          "id": "cf-origin-types",
+          "type": "multiple_choice",
+          "prompt": "Which of these are valid CloudFront origin types? Select all that apply.",
+          "rubric": [
+            "Identifies S3 as a valid origin",
+            "Identifies ALB/EC2/custom HTTP/on-prem HTTP as valid origins",
+            "Identifies API Gateway and AWS media services as valid HTTP origins",
+            "Does not treat DynamoDB as a direct CloudFront origin unless fronted by an HTTP service",
+            "Gives realistic use cases"
+          ],
+          "options": [
+            "S3 bucket",
+            "Application Load Balancer",
+            "EC2 or custom HTTP server",
+            "API Gateway",
+            "MediaPackage or MediaStore",
+            "On-premises HTTP server",
+            "DynamoDB table directly"
+          ],
+          "expectedAnswer": [
+            "S3 bucket",
+            "Application Load Balancer",
+            "EC2 or custom HTTP server",
+            "API Gateway",
+            "MediaPackage or MediaStore",
+            "On-premises HTTP server"
+          ]
+        },
+        {
+          "id": "cf-cache-behavior",
+          "type": "short_answer",
+          "prompt": "What does a CloudFront cache behavior control?",
+          "expectedAnswer": "A cache behavior maps path patterns to origin and delivery rules such as allowed methods, cache policy, origin request policy, response headers policy, compression, viewer protocol policy, signed URL/cookie requirements, and edge functions."
+        },
+        {
+          "id": "cf-default-behavior",
+          "type": "single_choice",
+          "prompt": "If multiple cache behaviors could match a request path, what is the safest mental model?",
+          "expectedAnswer": "Ordered cache behaviors are evaluated by path pattern, and the default behavior catches anything not matched",
+          "options": [
+            "CloudFront randomly chooses a behavior to spread load",
+            "The default behavior always wins, even if a more specific behavior exists",
+            "Ordered cache behaviors are evaluated by path pattern, and the default behavior catches anything not matched",
+            "Route 53 chooses the behavior before the request reaches CloudFront"
+          ]
+        },
+        {
+          "id": "cf-dynamic-content",
+          "type": "true_false",
+          "prompt": "CloudFront can only serve static objects and should not be used in front of dynamic APIs.",
+          "expectedAnswer": "False"
+        },
+        {
+          "id": "cf-origin-shield",
+          "type": "single_choice",
+          "prompt": "What problem does CloudFront Origin Shield primarily solve?",
+          "expectedAnswer": "It adds a centralized caching layer to reduce duplicate origin fetches across edge locations",
+          "options": [
+            "It encrypts S3 objects at rest",
+            "It adds a centralized caching layer to reduce duplicate origin fetches across edge locations",
+            "It registers a domain for a CloudFront distribution",
+            "It forwards DNS queries from on-premises networks into a VPC"
+          ]
+        },
+        {
+          "id": "cf-origin-failover",
+          "type": "long_answer",
+          "prompt": "Explain CloudFront origin failover. What signals can cause CloudFront to use the secondary origin, and what kinds of architectures benefit from it?",
+          "rubric": [
+            "Explains primary and secondary origin group",
+            "Mentions configured HTTP status codes and connection/origin failures",
+            "Distinguishes CloudFront failover from Route 53 DNS failover",
+            "Gives examples such as S3 backup origin, second region, or static fallback"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cloudfront-caching-policies-and-http",
+      "title": "CloudFront Caching, Policies, and HTTP",
+      "topic": "Cache keys, forwarding, TTLs, and HTTP behavior",
+      "instructions": "Focus on what changes the cache key, what is forwarded to origin, and what controls freshness.",
+      "questions": [
+        {
+          "id": "cf-cache-key",
+          "type": "short_answer",
+          "prompt": "What is a CloudFront cache key?",
+          "expectedAnswer": "The cache key is the set of request attributes CloudFront uses to decide whether two viewer requests can reuse the same cached response."
+        },
+        {
+          "id": "cf-cache-policy-vs-origin-request",
+          "type": "single_choice",
+          "prompt": "Which answer best describes the difference between a cache policy and an origin request policy?",
+          "expectedAnswer": "A cache policy controls what varies the cache key; an origin request policy controls additional viewer request data forwarded to the origin",
+          "options": [
+            "A cache policy controls what varies the cache key; an origin request policy controls additional viewer request data forwarded to the origin",
+            "A cache policy controls DNS TTLs; an origin request policy controls domain registration",
+            "A cache policy only applies to S3 origins; an origin request policy only applies to ALB origins",
+            "They are two names for the exact same setting"
+          ]
+        },
+        {
+          "id": "cf-forward-all-cookies",
+          "type": "single_choice",
+          "prompt": "Why can forwarding all cookies, all headers, or all query strings reduce cache effectiveness?",
+          "expectedAnswer": "It creates many cache variants, so fewer requests share the same cached object",
+          "options": [
+            "It disables HTTPS",
+            "It creates many cache variants, so fewer requests share the same cached object",
+            "It prevents CloudFront from reaching S3 origins",
+            "It forces Route 53 to lower its TTL"
+          ]
+        },
+        {
+          "id": "cf-ttl-interaction",
+          "type": "long_answer",
+          "prompt": "Explain how CloudFront minimum TTL, default TTL, maximum TTL, and origin Cache-Control headers interact.",
+          "rubric": [
+            "Mentions origin headers can set freshness",
+            "Mentions default TTL applies when origin does not provide cache directives",
+            "Mentions minimum TTL can keep content cached even if origin asks for shorter/no cache",
+            "Mentions maximum TTL caps origin-provided freshness"
+          ]
+        },
+        {
+          "id": "cf-invalidation",
+          "type": "single_choice",
+          "prompt": "What does a CloudFront invalidation do?",
+          "expectedAnswer": "Marks cached objects as stale/removed at CloudFront so future requests fetch fresh content",
+          "options": [
+            "Deletes the original object from S3",
+            "Marks cached objects as stale/removed at CloudFront so future requests fetch fresh content",
+            "Changes the DNS name of the distribution",
+            "Rotates TLS certificates"
+          ]
+        },
+        {
+          "id": "cf-versioning-vs-invalidation",
+          "type": "long_answer",
+          "prompt": "When would you prefer file versioning such as app.a1b2c3.js over CloudFront invalidations, and when would invalidation still be useful?",
+          "rubric": [
+            "Explains versioned filenames avoid stale-cache ambiguity",
+            "Mentions long TTLs for immutable assets",
+            "Mentions invalidation for HTML, emergency corrections, or unversioned paths",
+            "Considers cost/operational simplicity"
+          ]
+        },
+        {
+          "id": "cf-methods",
+          "type": "single_choice",
+          "prompt": "Which cache behavior setting matters when placing CloudFront in front of an API that uses POST, PUT, PATCH, or DELETE?",
+          "expectedAnswer": "Allowed HTTP methods",
+          "options": [
+            "Allowed HTTP methods",
+            "Price class only",
+            "DNSSEC signing",
+            "Registrar contact privacy"
+          ]
+        },
+        {
+          "id": "cf-get-head-cache",
+          "type": "true_false",
+          "prompt": "CloudFront can cache responses to every HTTP method, including POST and DELETE, in the same way it caches GET.",
+          "expectedAnswer": "False"
+        },
+        {
+          "id": "cf-compression",
+          "type": "short_answer",
+          "prompt": "What does CloudFront automatic compression do, and what request header is usually involved?",
+          "expectedAnswer": "CloudFront can compress eligible objects before returning them to viewers, commonly based on the viewer's Accept-Encoding header such as gzip or Brotli support."
+        },
+        {
+          "id": "cf-response-headers-policy",
+          "type": "single_choice",
+          "prompt": "Which CloudFront feature is best suited for adding headers like HSTS, CSP, CORS, or custom security headers without changing origin code?",
+          "expectedAnswer": "Response headers policy",
+          "options": [
+            "Response headers policy",
+            "Origin Shield",
+            "Weighted DNS routing",
+            "Route 53 Resolver rule"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cloudfront-security-access-and-tls",
+      "title": "CloudFront Security, Access, and TLS",
+      "topic": "HTTPS, origin protection, WAF, signed access, and privacy",
+      "instructions": "Think through both viewer-to-CloudFront and CloudFront-to-origin security.",
+      "questions": [
+        {
+          "id": "cf-viewer-vs-origin-tls",
+          "type": "long_answer",
+          "prompt": "Explain the two separate TLS connections in a typical CloudFront HTTPS request: viewer to CloudFront and CloudFront to origin. What can be configured independently?",
+          "rubric": [
+            "Identifies viewer connection and origin connection as separate",
+            "Mentions viewer certificate/custom domain on CloudFront",
+            "Mentions origin protocol policy and origin TLS validation",
+            "Mentions redirect HTTP to HTTPS or HTTPS-only viewer policies"
+          ]
+        },
+        {
+          "id": "cf-acm-region",
+          "type": "single_choice",
+          "prompt": "For a custom domain on a CloudFront distribution, where must the ACM certificate generally be created?",
+          "expectedAnswer": "In us-east-1 for CloudFront viewer certificates",
+          "options": [
+            "In the same Region as the S3 bucket",
+            "In us-east-1 for CloudFront viewer certificates",
+            "In every edge location manually",
+            "In Route 53, not ACM"
+          ]
+        },
+        {
+          "id": "cf-oac",
+          "type": "single_choice",
+          "prompt": "What is the modern purpose of CloudFront Origin Access Control (OAC) for S3 origins?",
+          "expectedAnswer": "To restrict S3 bucket access so CloudFront can fetch private objects while direct public access stays blocked",
+          "options": [
+            "To let viewers bypass CloudFront and read directly from S3",
+            "To restrict S3 bucket access so CloudFront can fetch private objects while direct public access stays blocked",
+            "To create DNS records automatically for every S3 object",
+            "To encrypt query strings before they reach the browser"
+          ]
+        },
+        {
+          "id": "cf-oai-vs-oac",
+          "type": "short_answer",
+          "prompt": "What is the relationship between Origin Access Identity (OAI) and Origin Access Control (OAC)?",
+          "expectedAnswer": "Both restrict S3 origins to CloudFront access, but OAC is the newer recommended mechanism with broader support and SigV4-based requests."
+        },
+        {
+          "id": "cf-signed-url-cookie",
+          "type": "single_choice",
+          "prompt": "When would signed cookies usually be a better fit than signed URLs?",
+          "expectedAnswer": "When a user needs temporary access to many private objects under a path",
+          "options": [
+            "When a user needs temporary access to many private objects under a path",
+            "When only DNS health checks are needed",
+            "When the origin is public and no authorization is desired",
+            "When registering a domain"
+          ]
+        },
+        {
+          "id": "cf-geo-restriction",
+          "type": "single_choice",
+          "prompt": "What does CloudFront geographic restriction do?",
+          "expectedAnswer": "Allows or blocks viewer access based on viewer country",
+          "options": [
+            "Routes DNS queries to the closest AWS Region",
+            "Allows or blocks viewer access based on viewer country",
+            "Moves the S3 bucket into the user's country",
+            "Encrypts content differently in each country"
+          ]
+        },
+        {
+          "id": "cf-waf-shield",
+          "type": "long_answer",
+          "prompt": "Explain how CloudFront, AWS WAF, AWS Shield, and Route 53 can work together as an edge security layer.",
+          "rubric": [
+            "Mentions CloudFront as edge front door",
+            "Mentions WAF rules for application-layer filtering",
+            "Mentions Shield for DDoS protection",
+            "Mentions Route 53 DNS and health/failover where relevant",
+            "Explains reducing exposure of origins"
+          ]
+        },
+        {
+          "id": "cf-field-level-encryption",
+          "type": "single_choice",
+          "prompt": "What is CloudFront field-level encryption intended to protect?",
+          "expectedAnswer": "Selected sensitive form fields or data fields so only designated private keys can decrypt them downstream",
+          "options": [
+            "Selected sensitive form fields or data fields so only designated private keys can decrypt them downstream",
+            "The entire S3 bucket from all AWS principals",
+            "DNS zone transfers between name servers",
+            "CloudWatch logs at rest only"
+          ]
+        },
+        {
+          "id": "cf-origin-secret-header",
+          "type": "short_answer",
+          "prompt": "For a custom origin behind CloudFront, why might you add a secret custom header from CloudFront to the origin and validate it at the origin?",
+          "expectedAnswer": "It helps the origin reject requests that do not come through CloudFront, reducing direct-origin bypass risk."
+        },
+        {
+          "id": "cf-security-select-all",
+          "type": "multiple_choice",
+          "prompt": "Which CloudFront-related controls can restrict access or reduce abuse? Select all that apply.",
+          "rubric": [
+            "Correctly classifies signed URLs/cookies as viewer authorization",
+            "Correctly classifies geo restriction as country-based viewer control",
+            "Correctly classifies OAC/OAI as origin access protection",
+            "Correctly classifies WAF/Shield as attack mitigation",
+            "Correctly classifies response headers policy as browser/client security hardening",
+            "Does not claim private hosted zones directly secure a public CloudFront distribution"
+          ],
+          "options": [
+            "Signed URLs/cookies",
+            "Geo restriction",
+            "OAC/OAI",
+            "AWS WAF",
+            "AWS Shield",
+            "Response headers policy",
+            "Route 53 private hosted zone"
+          ],
+          "expectedAnswer": [
+            "Signed URLs/cookies",
+            "Geo restriction",
+            "OAC/OAI",
+            "AWS WAF",
+            "AWS Shield",
+            "Response headers policy"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cloudfront-edge-compute-devops-observability",
+      "title": "CloudFront Edge Compute, DevOps, and Observability",
+      "topic": "CloudFront Functions, Lambda@Edge, KVS, deployments, logs, metrics, and cost",
+      "instructions": "Pay attention to the differences between similar-looking features.",
+      "questions": [
+        {
+          "id": "cf-functions-vs-lambda-edge",
+          "type": "single_choice",
+          "prompt": "Which statement best compares CloudFront Functions and Lambda@Edge?",
+          "expectedAnswer": "CloudFront Functions are for lightweight, very low-latency viewer request/response logic; Lambda@Edge supports heavier Node.js/Python logic and origin events",
+          "options": [
+            "CloudFront Functions are for lightweight, very low-latency viewer request/response logic; Lambda@Edge supports heavier Node.js/Python logic and origin events",
+            "Lambda@Edge is only for DNS records; CloudFront Functions are only for S3 bucket policies",
+            "They are identical runtimes with identical limits",
+            "CloudFront Functions run inside VPC subnets; Lambda@Edge runs only in Route 53"
+          ]
+        },
+        {
+          "id": "cf-function-use-cases",
+          "type": "long_answer",
+          "prompt": "Give four good CloudFront Functions use cases and two use cases that should probably move to Lambda@Edge or the origin instead.",
+          "rubric": [
+            "Good examples include redirects, header manipulation, URL rewrites, cache-key normalization, simple auth/token checks",
+            "Moves network calls, heavy computation, large dependencies, or origin response processing away from CloudFront Functions",
+            "Explains latency and runtime constraints"
+          ]
+        },
+        {
+          "id": "cf-kvs",
+          "type": "single_choice",
+          "prompt": "What is CloudFront KeyValueStore used for?",
+          "expectedAnswer": "Storing lookup data for CloudFront Functions without redeploying function code for every data change",
+          "options": [
+            "Storing lookup data for CloudFront Functions without redeploying function code for every data change",
+            "Replacing DynamoDB for strongly consistent transactional workloads",
+            "Storing Route 53 hosted zone records",
+            "Keeping CloudFront standard logs before delivery to S3"
+          ]
+        },
+        {
+          "id": "cf-lambda-edge-events",
+          "type": "short_answer",
+          "prompt": "Name the CloudFront event phases commonly associated with Lambda@Edge.",
+          "expectedAnswer": "Viewer request, origin request, origin response, and viewer response."
+        },
+        {
+          "id": "cf-continuous-deployment",
+          "type": "single_choice",
+          "prompt": "What does CloudFront continuous deployment let you do?",
+          "expectedAnswer": "Gradually test a staging distribution configuration against production traffic without changing DNS",
+          "options": [
+            "Gradually test a staging distribution configuration against production traffic without changing DNS",
+            "Automatically register new domains in Route 53",
+            "Run SQL migrations at edge locations",
+            "Bypass all cache behaviors for blue/green deploys"
+          ]
+        },
+        {
+          "id": "cf-standard-vs-realtime-logs",
+          "type": "single_choice",
+          "prompt": "Which answer best compares CloudFront standard logs and real-time logs?",
+          "expectedAnswer": "Standard logs are delivered to S3 after a delay; real-time logs are delivered to Kinesis Data Streams within seconds with configurable sampling",
+          "options": [
+            "Standard logs are delivered to S3 after a delay; real-time logs are delivered to Kinesis Data Streams within seconds with configurable sampling",
+            "Standard logs are only for Route 53; real-time logs are only for S3 origins",
+            "Real-time logs are less detailed and cannot be filtered",
+            "Both are delivered only to CloudWatch Logs"
+          ]
+        },
+        {
+          "id": "cf-metrics",
+          "type": "short_answer",
+          "prompt": "Name at least four CloudFront metrics or observability signals you would check during a performance or availability investigation.",
+          "rubric": [
+            "Includes requests, bytes downloaded/uploaded, 4xx/5xx error rates, cache hit rate, origin latency, total error rate, real-time logs, or CloudWatch metrics"
+          ]
+        },
+        {
+          "id": "cf-price-class",
+          "type": "single_choice",
+          "prompt": "What is a CloudFront price class?",
+          "expectedAnswer": "A setting that limits which groups of edge locations CloudFront uses to balance cost and global performance",
+          "options": [
+            "A setting that limits which groups of edge locations CloudFront uses to balance cost and global performance",
+            "A Route 53 pricing tier for domain names",
+            "A certificate validation class",
+            "A cache invalidation priority level"
+          ]
+        },
+        {
+          "id": "cf-security-savings-bundle",
+          "type": "single_choice",
+          "prompt": "Which pricing option trades a committed monthly CloudFront spend for a discount and can include AWS WAF usage benefits?",
+          "expectedAnswer": "CloudFront Security Savings Bundle",
+          "options": [
+            "CloudFront Security Savings Bundle",
+            "Route 53 Resolver endpoint bundle",
+            "S3 Intelligent-Tiering",
+            "ACM public certificate surcharge"
+          ]
+        },
+        {
+          "id": "cf-debugging-cache-miss",
+          "type": "long_answer",
+          "prompt": "A static JS file behind CloudFront is missing cache far more often than expected. List the likely causes you would investigate and what evidence you would look for.",
+          "rubric": [
+            "Checks cache policy headers/cookies/query strings",
+            "Checks origin Cache-Control and TTL settings",
+            "Checks object versioning and invalidations",
+            "Checks path behavior match",
+            "Uses CloudFront headers/logs/metrics to verify cache result"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "route53-dns-foundations",
+      "title": "Route 53 DNS Foundations",
+      "topic": "Authoritative DNS, hosted zones, records, aliases, TTLs, and domain registration",
+      "instructions": "Explain DNS mechanics precisely. Avoid hand-wavy answers like 'Route 53 points things somewhere'.",
+      "questions": [
+        {
+          "id": "r53-authoritative",
+          "type": "single_choice",
+          "prompt": "What does it mean that Route 53 is an authoritative DNS service?",
+          "expectedAnswer": "It answers DNS queries for zones you host in Route 53 using records you configure",
+          "options": [
+            "It answers DNS queries for zones you host in Route 53 using records you configure",
+            "It recursively resolves every DNS query from every browser on the internet",
+            "It replaces HTTP routing inside CloudFront",
+            "It stores SSL private keys for domains"
+          ]
+        },
+        {
+          "id": "r53-hosted-zone",
+          "type": "short_answer",
+          "prompt": "What is a Route 53 hosted zone?",
+          "expectedAnswer": "A hosted zone is a container for DNS records for a domain or subdomain, either public for internet DNS or private for VPC DNS."
+        },
+        {
+          "id": "r53-delegation",
+          "type": "long_answer",
+          "prompt": "Describe how a domain registered outside AWS can delegate DNS hosting to a public hosted zone in Route 53.",
+          "rubric": [
+            "Create public hosted zone for the domain",
+            "Copy the Route 53 authoritative name servers",
+            "Update name servers at the current registrar",
+            "Understand registrar delegation vs DNS records",
+            "Mentions propagation/caching delay"
+          ]
+        },
+        {
+          "id": "r53-public-vs-private-zone",
+          "type": "single_choice",
+          "prompt": "Which statement best describes public vs private hosted zones?",
+          "expectedAnswer": "Public hosted zones answer internet DNS queries; private hosted zones answer DNS queries from associated VPCs",
+          "options": [
+            "Public hosted zones answer internet DNS queries; private hosted zones answer DNS queries from associated VPCs",
+            "Private hosted zones are encrypted public zones",
+            "Public hosted zones can only contain A records; private zones can only contain CNAME records",
+            "Private hosted zones are used only for domain registration"
+          ]
+        },
+        {
+          "id": "r53-record-types",
+          "type": "long_answer",
+          "prompt": "Briefly explain these DNS record types and give one use case for each: A, AAAA, CNAME, MX, TXT, NS, SOA, CAA, SRV.",
+          "rubric": [
+            "Defines address records A/AAAA",
+            "Defines CNAME aliasing limits",
+            "Defines email-related MX and TXT examples",
+            "Defines delegation/zone metadata NS and SOA",
+            "Defines CAA certificate authority authorization",
+            "Defines SRV service discovery"
+          ]
+        },
+        {
+          "id": "r53-alias",
+          "type": "single_choice",
+          "prompt": "What is a Route 53 alias record?",
+          "expectedAnswer": "A Route 53-specific record that maps a DNS name to certain AWS resources such as CloudFront, ELB, S3 website endpoints, or another record, often usable at the zone apex",
+          "options": [
+            "A Route 53-specific record that maps a DNS name to certain AWS resources such as CloudFront, ELB, S3 website endpoints, or another record, often usable at the zone apex",
+            "A public/private key pair for DNSSEC",
+            "A recursive Resolver forwarding rule",
+            "A mandatory replacement for every TXT record"
+          ]
+        },
+        {
+          "id": "r53-apex-cname",
+          "type": "single_choice",
+          "prompt": "Why is an alias record commonly used for example.com pointing at CloudFront instead of a normal CNAME?",
+          "expectedAnswer": "DNS standards do not allow a CNAME at the zone apex when other required records such as NS/SOA exist; Route 53 alias solves this for supported targets",
+          "options": [
+            "DNS standards do not allow a CNAME at the zone apex when other required records such as NS/SOA exist; Route 53 alias solves this for supported targets",
+            "CloudFront refuses all CNAMEs",
+            "Alias records are the only records that support HTTPS",
+            "CNAME records only work inside private hosted zones"
+          ]
+        },
+        {
+          "id": "r53-ttl",
+          "type": "short_answer",
+          "prompt": "What does TTL mean in DNS, and why does it matter during a migration?",
+          "expectedAnswer": "TTL is how long resolvers can cache a DNS answer. Lowering it before a migration can reduce how long old answers persist, but existing cached answers keep their original TTL."
+        },
+        {
+          "id": "r53-domain-registration",
+          "type": "true_false",
+          "prompt": "Registering a domain with Route 53 and hosting DNS for that domain in Route 53 are related but separate capabilities.",
+          "expectedAnswer": "True"
+        },
+        {
+          "id": "r53-dnssec",
+          "type": "long_answer",
+          "prompt": "Explain DNSSEC signing for a public hosted zone and DNSSEC validation in Resolver. What threat does DNSSEC reduce, and what operational mistake can break resolution?",
+          "rubric": [
+            "Explains cryptographic signing/validation of DNS data",
+            "Mentions protection against spoofed/tampered DNS responses",
+            "Distinguishes hosted zone signing from resolver validation",
+            "Mentions DS/key chain mistakes can cause validation failure"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "route53-routing-health-and-traffic-management",
+      "title": "Route 53 Routing, Health Checks, and Traffic Management",
+      "topic": "Routing policies, health checks, failover, and Traffic Flow",
+      "instructions": "For each policy, know what input Route 53 uses to choose an answer and what problem it solves.",
+      "questions": [
+        {
+          "id": "r53-simple-routing",
+          "type": "single_choice",
+          "prompt": "When is simple routing the best fit?",
+          "expectedAnswer": "One record name should return one or more fixed values without policy-based traffic steering",
+          "options": [
+            "One record name should return one or more fixed values without policy-based traffic steering",
+            "You need different answers based on viewer geography",
+            "You need active/passive failover",
+            "You need CIDR-based answers by client network"
+          ]
+        },
+        {
+          "id": "r53-weighted-routing",
+          "type": "long_answer",
+          "prompt": "Explain weighted routing. Give two use cases and one caveat caused by DNS caching.",
+          "rubric": [
+            "Explains weights influence answer distribution",
+            "Use cases include canary, blue/green, A/B, gradual migration",
+            "Mentions caching means exact per-request percentages are not guaranteed",
+            "Mentions health checks can remove unhealthy weighted records"
+          ]
+        },
+        {
+          "id": "r53-latency-routing",
+          "type": "single_choice",
+          "prompt": "What does latency-based routing optimize for?",
+          "expectedAnswer": "Routing users to the AWS Region that Route 53 estimates has the lowest latency from their resolver/location",
+          "options": [
+            "Routing users to the AWS Region that Route 53 estimates has the lowest latency from their resolver/location",
+            "Routing to the cheapest AWS Region",
+            "Routing based only on the domain registrar's country",
+            "Routing to the origin with the newest TLS certificate"
+          ]
+        },
+        {
+          "id": "r53-failover-routing",
+          "type": "single_choice",
+          "prompt": "In Route 53 failover routing, what is the usual role of health checks?",
+          "expectedAnswer": "They determine when Route 53 should stop returning the primary answer and return the secondary answer",
+          "options": [
+            "They determine when Route 53 should stop returning the primary answer and return the secondary answer",
+            "They compress HTTP responses",
+            "They decide which CloudFront cache behavior matches a path",
+            "They create ACM certificates"
+          ]
+        },
+        {
+          "id": "r53-geolocation-vs-geoproximity",
+          "type": "long_answer",
+          "prompt": "Compare geolocation routing and geoproximity routing. When would you use each?",
+          "rubric": [
+            "Geolocation routes by user geographic location such as country/continent/subdivision",
+            "Geoproximity routes by geographic distance between users and resources",
+            "Mentions bias/shifting traffic for geoproximity where relevant",
+            "Gives data residency/content localization vs nearest-resource examples"
+          ]
+        },
+        {
+          "id": "r53-ip-based-routing",
+          "type": "single_choice",
+          "prompt": "What does Route 53 IP-based routing use to select an answer?",
+          "expectedAnswer": "CIDR blocks associated with the query-originating client/resolver network",
+          "options": [
+            "CIDR blocks associated with the query-originating client/resolver network",
+            "The HTTP X-Forwarded-For header",
+            "CloudFront cache keys",
+            "The user's browser language header"
+          ]
+        },
+        {
+          "id": "r53-multivalue",
+          "type": "short_answer",
+          "prompt": "What is multivalue answer routing, and how is it different from an Elastic Load Balancer?",
+          "expectedAnswer": "Multivalue answer routing can return multiple healthy DNS records, but it is DNS-level answer selection, not a full request-level load balancer with connection management."
+        },
+        {
+          "id": "r53-health-check-types",
+          "type": "long_answer",
+          "prompt": "List and explain the main kinds of Route 53 health checks you might use for DNS failover.",
+          "rubric": [
+            "Endpoint checks such as HTTP/HTTPS/TCP",
+            "Calculated health checks combining child checks",
+            "CloudWatch alarm based checks",
+            "String matching where relevant",
+            "Mentions health checkers and regional/global behavior at a high level"
+          ]
+        },
+        {
+          "id": "r53-traffic-flow",
+          "type": "single_choice",
+          "prompt": "What is Route 53 Traffic Flow for?",
+          "expectedAnswer": "Building and managing visual/global traffic policies that combine routing methods such as latency, geoproximity, health, and weights",
+          "options": [
+            "Building and managing visual/global traffic policies that combine routing methods such as latency, geoproximity, health, and weights",
+            "Streaming CloudFront real-time logs",
+            "Encrypting DNS answers with TLS",
+            "Creating Lambda@Edge functions"
+          ]
+        },
+        {
+          "id": "r53-policy-selection",
+          "type": "long_answer",
+          "prompt": "Choose the best Route 53 routing policy for each scenario and justify it: gradual migration, active/passive DR, user-to-nearest-region, country-specific content, enterprise-customer CIDR routing, multiple healthy IP answers.",
+          "rubric": [
+            "Weighted for gradual migration",
+            "Failover for active/passive DR",
+            "Latency or geoproximity for nearest-region depending on intent",
+            "Geolocation for country-specific content",
+            "IP-based routing for customer CIDRs",
+            "Multivalue answer for multiple healthy IPs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "route53-resolver-private-dns-and-profiles",
+      "title": "Route 53 Resolver, Private DNS, DNS Firewall, and Profiles",
+      "topic": "Hybrid DNS, VPC resolution, DNS security, and multi-account configuration",
+      "instructions": "Think in terms of recursive resolution paths inside VPCs and between AWS and on-premises networks.",
+      "questions": [
+        {
+          "id": "r53-resolver-role",
+          "type": "single_choice",
+          "prompt": "What is Route 53 Resolver primarily used for?",
+          "expectedAnswer": "Recursive DNS resolution for VPCs and hybrid DNS forwarding between AWS and other networks",
+          "options": [
+            "Recursive DNS resolution for VPCs and hybrid DNS forwarding between AWS and other networks",
+            "Serving public authoritative DNS for your internet domain only",
+            "Caching CloudFront objects",
+            "Issuing TLS certificates"
+          ]
+        },
+        {
+          "id": "r53-inbound-outbound",
+          "type": "long_answer",
+          "prompt": "Explain the difference between Route 53 Resolver inbound endpoints, outbound endpoints, and Resolver rules.",
+          "rubric": [
+            "Inbound endpoints let external/on-prem DNS query into VPC Resolver",
+            "Outbound endpoints let VPC DNS forward queries to external/on-prem DNS",
+            "Rules define which domains are forwarded and to which target DNS servers",
+            "Mentions security groups/subnets/IPs at a high level"
+          ]
+        },
+        {
+          "id": "r53-private-hosted-zone-association",
+          "type": "single_choice",
+          "prompt": "How does a private hosted zone become resolvable from a VPC?",
+          "expectedAnswer": "By associating the private hosted zone with the VPC",
+          "options": [
+            "By associating the private hosted zone with the VPC",
+            "By creating a public NS record at the registrar",
+            "By enabling CloudFront Origin Shield",
+            "By adding a CNAME at the zone apex"
+          ]
+        },
+        {
+          "id": "r53-split-horizon",
+          "type": "short_answer",
+          "prompt": "What is split-horizon DNS, and how can Route 53 support it?",
+          "expectedAnswer": "Split-horizon DNS returns different answers for the same name depending on where the query comes from, commonly using a public hosted zone for internet clients and a private hosted zone for VPC clients."
+        },
+        {
+          "id": "r53-dns-firewall",
+          "type": "single_choice",
+          "prompt": "What does Route 53 Resolver DNS Firewall do?",
+          "expectedAnswer": "Filters outbound DNS queries from VPCs using domain lists and rule groups",
+          "options": [
+            "Filters outbound DNS queries from VPCs using domain lists and rule groups",
+            "Blocks HTTP requests at CloudFront based on URI path",
+            "Encrypts S3 objects",
+            "Registers malicious domains so nobody else can use them"
+          ]
+        },
+        {
+          "id": "r53-dns-firewall-actions",
+          "type": "long_answer",
+          "prompt": "Describe practical DNS Firewall actions or outcomes you would expect when a VPC workload queries a blocked domain. Include what you would log or monitor.",
+          "rubric": [
+            "Mentions block/allow/alert-style policy behavior",
+            "Mentions returning NODATA/NXDOMAIN/override or redirection where configured",
+            "Mentions query logging and CloudWatch/S3/Kinesis destinations where relevant",
+            "Connects to malware/data-exfiltration control"
+          ]
+        },
+        {
+          "id": "r53-query-logging",
+          "type": "single_choice",
+          "prompt": "What does Route 53 Resolver query logging help you see?",
+          "expectedAnswer": "DNS queries made by resources in VPCs, useful for troubleshooting and security analysis",
+          "options": [
+            "DNS queries made by resources in VPCs, useful for troubleshooting and security analysis",
+            "CloudFront cache hit ratio for public viewers",
+            "Every HTTP header sent to an ALB",
+            "All domain registration invoices"
+          ]
+        },
+        {
+          "id": "r53-profiles",
+          "type": "single_choice",
+          "prompt": "What problem do Route 53 Profiles help solve?",
+          "expectedAnswer": "Managing and sharing Route 53 configurations such as private hosted zones, Resolver rules, and DNS Firewall rule groups across VPCs/accounts",
+          "options": [
+            "Managing and sharing Route 53 configurations such as private hosted zones, Resolver rules, and DNS Firewall rule groups across VPCs/accounts",
+            "Choosing CloudFront edge price classes",
+            "Creating HTML profiles for users",
+            "Replacing IAM roles for all DNS changes"
+          ]
+        },
+        {
+          "id": "r53-outposts",
+          "type": "single_choice",
+          "prompt": "What is Route 53 Resolver on Outposts endpoints intended for?",
+          "expectedAnswer": "DNS resolution connectivity between Outposts racks and on-premises or other network DNS environments",
+          "options": [
+            "DNS resolution connectivity between Outposts racks and on-premises or other network DNS environments",
+            "Serving CloudFront content from an Outposts rack",
+            "Registering domains that end in .outposts",
+            "Creating browser cache headers"
+          ]
+        },
+        {
+          "id": "r53-hybrid-design",
+          "type": "long_answer",
+          "prompt": "Design DNS for a company with VPCs in AWS, an on-premises data center, private service names under corp.example.com, and public names under example.com. Explain hosted zones, Resolver endpoints, forwarding rules, and likely failure points.",
+          "rubric": [
+            "Uses public hosted zone for internet-facing example.com records",
+            "Uses private hosted zone or on-prem authoritative DNS for corp.example.com",
+            "Uses inbound/outbound endpoints and forwarding rules appropriately",
+            "Mentions security groups, network paths, endpoint IP availability, and rule association",
+            "Mentions split-horizon risks and testing with dig/nslookup"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cloudfront-route53-integration",
+      "title": "CloudFront and Route 53 Integration",
+      "topic": "Custom domains, aliases, TLS, failover boundaries, and full request lifecycle",
+      "instructions": "These questions test where DNS stops and HTTP/CDN behavior begins.",
+      "questions": [
+        {
+          "id": "integration-custom-domain-steps",
+          "type": "long_answer",
+          "prompt": "List the main steps to serve https://www.example.com from CloudFront using Route 53 for DNS.",
+          "rubric": [
+            "Request/validate ACM certificate for www.example.com in us-east-1",
+            "Add alternate domain name/CNAME to CloudFront distribution",
+            "Configure origin and cache behaviors",
+            "Create Route 53 alias A/AAAA record for www.example.com to CloudFront",
+            "Set viewer protocol policy/security settings and test"
+          ]
+        },
+        {
+          "id": "integration-apex",
+          "type": "single_choice",
+          "prompt": "Which Route 53 record is typically used to point example.com, the zone apex, to a CloudFront distribution?",
+          "expectedAnswer": "Alias A and optionally alias AAAA",
+          "options": [
+            "Alias A and optionally alias AAAA",
+            "MX",
+            "SOA",
+            "SRV only"
+          ]
+        },
+        {
+          "id": "integration-dns-vs-http",
+          "type": "single_choice",
+          "prompt": "Which setting is controlled by CloudFront rather than Route 53?",
+          "expectedAnswer": "Cache policy for forwarding query strings to the origin",
+          "options": [
+            "Cache policy for forwarding query strings to the origin",
+            "Hosted zone name server delegation",
+            "Domain registration contact details",
+            "DNS TTL on a non-alias record"
+          ]
+        },
+        {
+          "id": "integration-route53-cannot-see-path",
+          "type": "true_false",
+          "prompt": "Route 53 can route /api/* to one target and /images/* to another target because DNS sees the full URL path.",
+          "expectedAnswer": "False"
+        },
+        {
+          "id": "integration-where-path-routing",
+          "type": "short_answer",
+          "prompt": "If DNS cannot see URL paths, where should /api/* versus /images/* routing usually be implemented?",
+          "expectedAnswer": "In CloudFront cache behaviors, an application load balancer, API gateway, reverse proxy, or application routing layer."
+        },
+        {
+          "id": "integration-failover-boundaries",
+          "type": "long_answer",
+          "prompt": "Compare Route 53 DNS failover and CloudFront origin failover. When would you use one, the other, or both?",
+          "rubric": [
+            "Route 53 failover changes DNS answers based on health checks",
+            "CloudFront origin failover changes origin selection behind one distribution",
+            "DNS failover affected by TTL/resolver caching",
+            "CloudFront failover can be faster for origin-level HTTP errors",
+            "Both can be layered for distribution-level or regional disaster recovery"
+          ]
+        },
+        {
+          "id": "integration-cloudfront-with-latency-dns",
+          "type": "single_choice",
+          "prompt": "Why is latency-based Route 53 routing usually not needed just to send global users to their nearest CloudFront edge?",
+          "expectedAnswer": "CloudFront's own anycast/edge network already routes viewers to nearby edge infrastructure after DNS resolves the distribution name",
+          "options": [
+            "CloudFront's own anycast/edge network already routes viewers to nearby edge infrastructure after DNS resolves the distribution name",
+            "CloudFront only works in one Region",
+            "Route 53 latency routing is illegal with CloudFront",
+            "Latency routing disables HTTPS"
+          ]
+        },
+        {
+          "id": "integration-multiple-distributions",
+          "type": "long_answer",
+          "prompt": "When might you intentionally use Route 53 routing policies across multiple CloudFront distributions instead of one global distribution?",
+          "rubric": [
+            "Examples include regional isolation, separate compliance boundaries, different distributions/configs, DR, tenant separation, migration/canary",
+            "Acknowledges added complexity with certificates, aliases, caching, logs, invalidations",
+            "Does not claim this is required for normal global edge performance"
+          ]
+        },
+        {
+          "id": "integration-aaaa",
+          "type": "single_choice",
+          "prompt": "Why might you create both alias A and alias AAAA records to CloudFront?",
+          "expectedAnswer": "To support both IPv4 and IPv6 viewers when IPv6 is enabled on the distribution",
+          "options": [
+            "To support both IPv4 and IPv6 viewers when IPv6 is enabled on the distribution",
+            "To double the cache hit ratio",
+            "To make HTTP POST cacheable",
+            "To enable private hosted zones"
+          ]
+        },
+        {
+          "id": "integration-full-lifecycle",
+          "type": "long_answer",
+          "prompt": "Walk through the complete lifecycle for a first-time visitor opening https://example.com/: registrar delegation, Route 53 hosted zone, alias record, CloudFront TLS, cache behavior, origin fetch, response, and subsequent cached request.",
+          "rubric": [
+            "Covers delegation from registrar to Route 53 name servers",
+            "Covers Route 53 alias answer to CloudFront",
+            "Covers TLS/SNI/custom certificate",
+            "Covers behavior selection and cache lookup",
+            "Covers origin fetch and caching",
+            "Covers subsequent request served from cache when fresh"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scenario-gap-finder",
+      "title": "Scenario Gap Finder",
+      "topic": "Architecture troubleshooting and design decisions",
+      "instructions": "These are harder. Write your reasoning, assumptions, and tradeoffs. The goal is to expose gaps.",
+      "questions": [
+        {
+          "id": "scenario-stale-html",
+          "type": "long_answer",
+          "prompt": "Users report stale HTML after a deploy, but JS/CSS assets are fine. Design a CloudFront caching strategy for HTML and static assets, including TTLs, Cache-Control, invalidation, and file versioning.",
+          "rubric": [
+            "Short/no-cache or carefully controlled TTL for HTML",
+            "Long immutable TTL for versioned assets",
+            "Invalidation for emergency or unversioned HTML paths",
+            "Explains browser cache vs CloudFront cache",
+            "Avoids forwarding unnecessary cookies/headers for static assets"
+          ]
+        },
+        {
+          "id": "scenario-private-s3-site",
+          "type": "long_answer",
+          "prompt": "You need to serve a private S3-backed website through CloudFront only, with no public S3 access. Describe the setup and the policy pieces.",
+          "rubric": [
+            "Uses CloudFront distribution with S3 origin",
+            "Uses OAC as preferred approach",
+            "S3 Block Public Access remains enabled where appropriate",
+            "Bucket policy allows CloudFront service principal/source distribution",
+            "Route 53 alias and ACM certificate for custom domain"
+          ]
+        },
+        {
+          "id": "scenario-api-front-door",
+          "type": "long_answer",
+          "prompt": "Design CloudFront in front of an API. What would you configure differently from a static asset distribution?",
+          "rubric": [
+            "Allowed methods include API verbs",
+            "Cache disabled or carefully scoped for personalized/dynamic responses",
+            "Forward required headers/query/cookies only",
+            "Origin request policy and CORS/security headers",
+            "WAF/rate limiting/auth considerations",
+            "Logs/metrics for errors and latency"
+          ]
+        },
+        {
+          "id": "scenario-multi-region-active-passive",
+          "type": "long_answer",
+          "prompt": "Design active/passive disaster recovery for a public app using Route 53, CloudFront, and two origins in different Regions. Explain failover points and TTL/caching consequences.",
+          "rubric": [
+            "Uses Route 53 failover where DNS-level target should change",
+            "Uses CloudFront origin failover where one distribution can switch origins",
+            "Mentions health checks and what they check",
+            "Mentions DNS TTL and resolver caching",
+            "Mentions cache behavior when origin changes",
+            "Mentions data consistency/session implications"
+          ]
+        },
+        {
+          "id": "scenario-hybrid-dns-outage",
+          "type": "long_answer",
+          "prompt": "An EC2 instance cannot resolve db.corp.example.com, which is hosted on-premises. You use Route 53 Resolver outbound endpoints. Give a step-by-step troubleshooting path.",
+          "rubric": [
+            "Check VPC DNS settings and DHCP options if relevant",
+            "Check Resolver rule domain match and VPC association",
+            "Check outbound endpoint status, subnets, IPs, and security groups",
+            "Check network path to on-prem DNS through VPN/DX/firewall",
+            "Check on-prem DNS recursion/authoritative response",
+            "Use dig/nslookup and query logs"
+          ]
+        },
+        {
+          "id": "scenario-domain-migration",
+          "type": "long_answer",
+          "prompt": "Plan a low-risk migration of public DNS for example.com from another provider to Route 53. Include inventory, TTL strategy, validation, delegation, rollback, and post-cutover checks.",
+          "rubric": [
+            "Exports/inventories existing records",
+            "Creates hosted zone and imports records",
+            "Lowers TTLs ahead of time where possible",
+            "Validates answers against Route 53 name servers before delegation",
+            "Updates registrar name servers",
+            "Monitors propagation and keeps old zone temporarily",
+            "Has rollback by restoring old delegation if needed"
+          ]
+        },
+        {
+          "id": "scenario-security-review",
+          "type": "long_answer",
+          "prompt": "Security review: A public ALB origin is behind CloudFront, but attackers can call the ALB DNS name directly. What controls would you consider, and what are their tradeoffs?",
+          "rubric": [
+            "Restrict ALB security group to CloudFront managed prefix list where applicable",
+            "Validate secret custom header or use origin auth where possible",
+            "Use WAF at CloudFront and/or ALB with clear tradeoffs",
+            "Consider private origins/VPC architecture where applicable",
+            "Discuss operational rotation and bypass limitations"
+          ]
+        },
+        {
+          "id": "scenario-cost-performance",
+          "type": "long_answer",
+          "prompt": "A CloudFront bill is high and origin load is still high. What would you inspect before changing architecture?",
+          "rubric": [
+            "Cache hit ratio and cache key cardinality",
+            "Forwarded headers/cookies/query strings",
+            "TTL and Cache-Control",
+            "Origin Shield for duplicate origin fetch collapse",
+            "Invalidation patterns and object versioning",
+            "Price class, data transfer, real-time log sampling, WAF costs",
+            "Separate static and dynamic behaviors"
+          ]
+        },
+        {
+          "id": "scenario-dns-firewall",
+          "type": "long_answer",
+          "prompt": "Design a Route 53 Resolver DNS Firewall rollout for multiple AWS accounts. Include rule groups, domain lists, alert/block modes, exception handling, logging, and how Profiles might help.",
+          "rubric": [
+            "Central rule groups/domain lists",
+            "Start in alert/count style before blocking critical domains",
+            "Exception process for business domains",
+            "Query logging and monitoring",
+            "Multi-account/VPC association strategy",
+            "Profiles or AWS RAM style sharing where relevant"
+          ]
+        },
+        {
+          "id": "scenario-final-teachback",
+          "type": "long_answer",
+          "prompt": "Teach back the difference between CloudFront and Route 53 to a junior engineer in under 10 sentences. Include what each service does, where they overlap, where they do not, and one example of using both together.",
+          "rubric": [
+            "CloudFront is CDN/edge HTTP delivery and caching/security front door",
+            "Route 53 is DNS/domain registration/authoritative and resolver service",
+            "Overlap at edge availability/security but not same layer",
+            "DNS maps names; CloudFront handles HTTP/TLS/cache/origin behavior",
+            "Example uses Route 53 alias to CloudFront with custom domain"
+          ]
+        }
+      ]
+    }
+  ]
+}

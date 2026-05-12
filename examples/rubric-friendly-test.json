@@ -1,0 +1,47 @@
+{
+  "title": "Rubric-Friendly Example",
+  "description": "Extra fields like rubric and expectedAnswer are allowed. The app ignores them, but an AI reviewer can use them after export.",
+  "tests": [
+    {
+      "id": "photosynthesis",
+      "title": "Photosynthesis Check",
+      "topic": "Biology",
+      "instructions": "Write clear answers. The exported Markdown can be reviewed against the rubric fields in this source JSON.",
+      "questions": [
+        {
+          "id": "definition",
+          "type": "short_answer",
+          "prompt": "What is photosynthesis?",
+          "expectedAnswer": "Photosynthesis is the process plants, algae, and some bacteria use to convert light energy into chemical energy stored in sugars.",
+          "rubric": [
+            "Mentions light energy",
+            "Mentions conversion to chemical energy or sugar",
+            "Identifies plants, algae, or some bacteria"
+          ]
+        },
+        {
+          "id": "inputs",
+          "type": "single_choice",
+          "prompt": "Which pair are major inputs of photosynthesis?",
+          "expectedAnswer": "Carbon dioxide and water",
+          "options": [
+            "Oxygen and glucose",
+            "Carbon dioxide and water",
+            "Nitrogen and oxygen",
+            "Protein and starch"
+          ]
+        },
+        {
+          "id": "why-it-matters",
+          "type": "long_answer",
+          "prompt": "Why does photosynthesis matter for ecosystems?",
+          "rubric": [
+            "Explains energy flow",
+            "Mentions producers or food webs",
+            "Mentions oxygen or carbon dioxide when relevant"
+          ]
+        }
+      ]
+    }
+  ]
+}

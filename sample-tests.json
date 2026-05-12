@@ -1,0 +1,53 @@
+{
+  "title": "Learning Checks",
+  "description": "Starter tests you can replace with your own JSON file.",
+  "tests": [
+    {
+      "id": "web-fundamentals",
+      "title": "Web Fundamentals",
+      "topic": "HTML, CSS, and JavaScript",
+      "instructions": "Answer from memory. Use examples when they help.",
+      "questions": [
+        {
+          "id": "q1",
+          "type": "short_answer",
+          "prompt": "What problem does semantic HTML solve?"
+        },
+        {
+          "id": "q2",
+          "type": "single_choice",
+          "prompt": "Which CSS layout tool is best for two-dimensional page layouts?",
+          "options": [
+            "Flexbox",
+            "Grid",
+            "Float",
+            "Position absolute"
+          ]
+        },
+        {
+          "id": "q3",
+          "type": "long_answer",
+          "prompt": "Explain the difference between synchronous and asynchronous JavaScript."
+        }
+      ]
+    },
+    {
+      "id": "git-basics",
+      "title": "Git Basics",
+      "topic": "Version Control",
+      "instructions": "Keep answers practical and command-focused.",
+      "questions": [
+        {
+          "id": "q1",
+          "type": "short_answer",
+          "prompt": "What does staging a file mean in Git?"
+        },
+        {
+          "id": "q2",
+          "type": "long_answer",
+          "prompt": "Describe a safe workflow for reviewing changes before committing."
+        }
+      ]
+    }
+  ]
+}

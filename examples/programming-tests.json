@@ -1,0 +1,64 @@
+{
+  "title": "Programming Learning Checks",
+  "description": "A few short tests for checking software understanding.",
+  "tests": [
+    {
+      "id": "javascript-functions",
+      "title": "JavaScript Functions",
+      "topic": "JavaScript",
+      "instructions": "Answer without looking anything up. Use examples when useful.",
+      "questions": [
+        {
+          "id": "closures",
+          "type": "long_answer",
+          "prompt": "What is a closure, and why is it useful?"
+        },
+        {
+          "id": "arrow-this",
+          "type": "short_answer",
+          "prompt": "How does `this` behave differently in arrow functions?"
+        },
+        {
+          "id": "function-kind",
+          "type": "single_choice",
+          "prompt": "Which syntax creates an arrow function?",
+          "options": [
+            "function add(a, b) { return a + b; }",
+            "const add = (a, b) => a + b;",
+            "def add(a, b): return a + b",
+            "fn add(a, b) => a + b"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "http-basics",
+      "title": "HTTP Basics",
+      "topic": "Web APIs",
+      "instructions": "Focus on practical meaning, not memorized wording.",
+      "questions": [
+        {
+          "id": "methods",
+          "type": "short_answer",
+          "prompt": "What is the difference between GET and POST?"
+        },
+        {
+          "id": "status-codes",
+          "type": "single_choice",
+          "prompt": "Which status code usually means the resource was not found?",
+          "options": [
+            "200",
+            "301",
+            "404",
+            "500"
+          ]
+        },
+        {
+          "id": "request-response",
+          "type": "long_answer",
+          "prompt": "Describe what happens from clicking a link to receiving an HTTP response."
+        }
+      ]
+    }
+  ]
+}
