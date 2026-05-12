@@ -9,7 +9,23 @@
       const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
       document.documentElement.dataset.theme = savedTheme || (prefersDark ? "dark" : "light");
     </script>
-    <link rel="stylesheet" href="./styles.css" />
+    <link id="design-theme-link" rel="stylesheet" href="./styles.css" />
+    <script>
+      (function () {
+        const designs = {
+          classic: "./styles.css",
+          terminal: "./themes/terminal.css",
+          luxury: "./themes/luxury.css",
+          brutalist: "./themes/brutalist.css",
+          glass: "./themes/glass.css",
+          zen: "./themes/zen.css"
+        };
+        const saved = localStorage.getItem("test-form-maker-design") || "classic";
+        const link = document.getElementById("design-theme-link");
+        if (link && designs[saved]) link.href = designs[saved];
+      })();
+    </script>
+    <link rel="stylesheet" href="./switcher.css" />
   </head>
   <body>
     <main class="app-shell">
@@ -92,5 +108,130 @@
     </main>
 
     <script src="./app.js"></script>
+
+    <!-- Design Switcher -->
+    <div id="designSwitcher" class="design-switcher">
+      <button id="designToggle" class="design-toggle" aria-expanded="false" aria-haspopup="true" title="Change design">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" fill="currentColor"/>
+          <path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/>
+        </svg>
+        <span id="designToggleLabel">Design</span>
+      </button>
+      <div id="designPanel" class="design-panel" role="menu">
+        <div class="design-panel-label">Choose Design</div>
+        <button class="design-option" data-design="classic" role="menuitem">
+          <div class="design-swatch swatch-classic"></div>
+          <div>
+            <div class="design-option-name">Classic</div>
+            <div class="design-option-desc">Warm parchment</div>
+          </div>
+        </button>
+        <button class="design-option" data-design="terminal" role="menuitem">
+          <div class="design-swatch swatch-terminal"></div>
+          <div>
+            <div class="design-option-name">Terminal</div>
+            <div class="design-option-desc">CRT phosphor green</div>
+          </div>
+        </button>
+        <button class="design-option" data-design="luxury" role="menuitem">
+          <div class="design-swatch swatch-luxury"></div>
+          <div>
+            <div class="design-option-name">Luxury</div>
+            <div class="design-option-desc">Dark haute couture</div>
+          </div>
+        </button>
+        <button class="design-option" data-design="brutalist" role="menuitem">
+          <div class="design-swatch swatch-brutalist"></div>
+          <div>
+            <div class="design-option-name">Brutalist</div>
+            <div class="design-option-desc">Raw & confrontational</div>
+          </div>
+        </button>
+        <button class="design-option" data-design="glass" role="menuitem">
+          <div class="design-swatch swatch-glass"></div>
+          <div>
+            <div class="design-option-name">Glass</div>
+            <div class="design-option-desc">Deep space aura</div>
+          </div>
+        </button>
+        <button class="design-option" data-design="zen" role="menuitem">
+          <div class="design-swatch swatch-zen"></div>
+          <div>
+            <div class="design-option-name">Zen</div>
+            <div class="design-option-desc">Japanese minimalism</div>
+          </div>
+        </button>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        const designs = {
+          classic: "./styles.css",
+          terminal: "./themes/terminal.css",
+          luxury: "./themes/luxury.css",
+          brutalist: "./themes/brutalist.css",
+          glass: "./themes/glass.css",
+          zen: "./themes/zen.css"
+        };
+
+        const themeLink = document.getElementById("design-theme-link");
+        const toggle = document.getElementById("designToggle");
+        const panel = document.getElementById("designPanel");
+        const label = document.getElementById("designToggleLabel");
+        const options = document.querySelectorAll(".design-option");
+
+        let current = localStorage.getItem("test-form-maker-design") || "classic";
+        let open = false;
+
+        function applyDesign(name) {
+          if (!designs[name]) return;
+          themeLink.href = designs[name];
+          current = name;
+          localStorage.setItem("test-form-maker-design", name);
+          const names = { classic: "Classic", terminal: "Terminal", luxury: "Luxury", brutalist: "Brutalist", glass: "Glass", zen: "Zen" };
+          label.textContent = names[name] || "Design";
+          options.forEach(function (opt) {
+            opt.classList.toggle("active", opt.dataset.design === name);
+          });
+        }
+
+        toggle.addEventListener("click", function (e) {
+          e.stopPropagation();
+          open = !open;
+          panel.classList.toggle("open", open);
+          toggle.setAttribute("aria-expanded", String(open));
+        });
+
+        options.forEach(function (opt) {
+          opt.addEventListener("click", function () {
+            applyDesign(opt.dataset.design);
+            open = false;
+            panel.classList.remove("open");
+            toggle.setAttribute("aria-expanded", "false");
+          });
+        });
+
+        document.addEventListener("click", function (e) {
+          if (!e.target.closest("#designSwitcher")) {
+            open = false;
+            panel.classList.remove("open");
+            toggle.setAttribute("aria-expanded", "false");
+          }
+        });
+
+        document.addEventListener("keydown", function (e) {
+          if (e.key === "Escape" && open) {
+            open = false;
+            panel.classList.remove("open");
+            toggle.setAttribute("aria-expanded", "false");
+            toggle.focus();
+          }
+        });
+
+        applyDesign(current);
+      })();
+    </script>
   </body>
 </html>
