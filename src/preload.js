@@ -7,3 +7,4 @@ contextBridge.exposeInMainWorld("testFiles", {
   openExample: (fileName) => ipcRenderer.invoke("tests:example", fileName),
   saveMarkdown: (payload) => ipcRenderer.invoke("tests:saveMarkdown", payload)
 });
+3

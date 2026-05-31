@@ -217,8 +217,74 @@ function normalizeQuestion(question, index) {
     type,
     prompt,
     options,
-    choices: options
+    choices: options,
+    details: getQuestionDetails(question),
+    grading: getQuestionGrading(question),
+    language: stringify(question.language) || "text",
+    placeholder: stringify(question.placeholder)
   };
+}
+
+function getQuestionDetails(question) {
+  const details = [];
+
+  addDetail(details, "Scenario", question.scenario);
+  addDetail(details, "Task", question.task);
+  addDetail(details, "Requirements", question.requirements, "list");
+  addDetail(details, "Constraints", question.constraints, "list");
+  addDetail(details, "Starter code", question.starterCode || question.starter_code, "code");
+  addDetail(details, "Code to review", question.candidateCode || question.candidate_code || question.code, "code");
+  addDetail(details, "Expected behavior", question.expectedBehavior || question.expected_behavior);
+  addDetail(details, "Expected output", question.expectedOutput || question.expected_output, "code");
+  addDetail(details, "Answer format", question.answerFormat || question.answer_format);
+  addDetail(details, "Source", question.source);
+
+  if (Array.isArray(question.details)) {
+    for (const detail of question.details) {
+      if (!detail || typeof detail !== "object") {
+        continue;
+      }
+
+      addDetail(details, stringify(detail.label) || "Note", detail.value || detail.text || detail.items, stringify(detail.kind));
+    }
+  }
+
+  return details;
+}
+
+function getQuestionGrading(question) {
+  const grading = [];
+
+  addDetail(grading, "Expected answer", question.expectedAnswer || question.expected_answer);
+  addDetail(grading, "Rubric", question.rubric, "list");
+  addDetail(grading, "Weak spots tested", question.weakSpots || question.weak_spots, "list");
+  addDetail(grading, "Common mistakes", question.commonMistakes || question.common_mistakes, "list");
+  addDetail(grading, "Red flags", question.redFlags || question.red_flags, "list");
+
+  return grading;
+}
+
+function addDetail(details, label, value, kind = "text") {
+  const normalizedValue = normalizeDetailValue(value);
+
+  if (!normalizedValue) {
+    return;
+  }
+
+  details.push({
+    label,
+    value: normalizedValue,
+    kind: kind === "code" || kind === "list" ? kind : "text"
+  });
+}
+
+function normalizeDetailValue(value) {
+  if (Array.isArray(value)) {
+    const items = value.map(stringify).filter(Boolean);
+    return items.length > 0 ? items : null;
+  }
+
+  return stringify(value) || null;
 }
 
 function normalizeQuestionType(type) {
@@ -350,9 +416,69 @@ function renderQuestion(test, question, index) {
   help.className = "question-help";
   help.textContent = getQuestionHelp(question);
 
-  fieldset.append(header, help, renderAnswerControl(test, question));
+  fieldset.append(header, help);
+
+  const details = renderQuestionDetails(question);
+  if (details) {
+    fieldset.append(details);
+  }
+
+  fieldset.append(renderAnswerControl(test, question));
 
   return fieldset;
+}
+
+function renderQuestionDetails(question) {
+  if (!question.details || question.details.length === 0) {
+    return null;
+  }
+
+  const container = document.createElement("div");
+  container.className = "question-details";
+
+  for (const detail of question.details) {
+    container.append(renderQuestionDetail(question, detail));
+  }
+
+  return container;
+}
+
+function renderQuestionDetail(question, detail) {
+  const section = document.createElement("section");
+  section.className = `question-detail ${detail.kind === "code" ? "code-detail" : ""}`;
+
+  const label = document.createElement("div");
+  label.className = "question-detail-label";
+  label.textContent = detail.label;
+
+  if (detail.kind === "list" && Array.isArray(detail.value)) {
+    const list = document.createElement("ul");
+    list.className = "question-detail-list";
+
+    for (const item of detail.value) {
+      const listItem = document.createElement("li");
+      listItem.textContent = item;
+      list.append(listItem);
+    }
+
+    section.append(label, list);
+    return section;
+  }
+
+  if (detail.kind === "code") {
+    const pre = document.createElement("pre");
+    const code = document.createElement("code");
+    code.className = `language-${question.language}`;
+    code.textContent = Array.isArray(detail.value) ? detail.value.join("\n") : detail.value;
+    pre.append(code);
+    section.append(label, pre);
+    return section;
+  }
+
+  const text = document.createElement("p");
+  text.textContent = Array.isArray(detail.value) ? detail.value.join("\n") : detail.value;
+  section.append(label, text);
+  return section;
 }
 
 function renderAnswerControl(test, question) {
@@ -421,7 +547,7 @@ function renderAnswerControl(test, question) {
   const textarea = document.createElement("textarea");
   textarea.value = answer;
   textarea.dataset.questionId = question.id;
-  textarea.placeholder = "Write your answer";
+  textarea.placeholder = question.placeholder || "Write your answer";
   textarea.className = "long-answer";
   return textarea;
 }
@@ -559,10 +685,39 @@ function buildMarkdown() {
   test.questions.forEach((question, index) => {
     const answer = formatAnswerForMarkdown(answers[question.id]);
 
-    lines.push(`### ${index + 1}. ${question.prompt}`, "", `**Question type:** ${question.type}`, "", answer, "");
+    lines.push(`### ${index + 1}. ${question.prompt}`, "", `**Question type:** ${question.type}`, "");
+
+    appendDetailsForMarkdown(lines, question.details, "Question Context", question.language);
+    appendDetailsForMarkdown(lines, question.grading, "Reviewer Grading Notes", question.language);
+
+    lines.push("**Answer:**", "", answer, "");
   });
 
   return lines.join("\n");
+}
+
+function appendDetailsForMarkdown(lines, details, title, language) {
+  if (!details || details.length === 0) {
+    return;
+  }
+
+  lines.push(`**${title}:**`, "");
+
+  for (const detail of details) {
+    lines.push(`_${detail.label}_`);
+
+    if (detail.kind === "list" && Array.isArray(detail.value)) {
+      lines.push(...detail.value.map((item) => `- ${item}`), "");
+      continue;
+    }
+
+    if (detail.kind === "code") {
+      lines.push(`\`\`\`${language || "text"}`, Array.isArray(detail.value) ? detail.value.join("\n") : detail.value, "\`\`\`", "");
+      continue;
+    }
+
+    lines.push(Array.isArray(detail.value) ? detail.value.join("\n") : detail.value, "");
+  }
 }
 
 function getCurrentTest() {
@@ -583,10 +738,10 @@ function getQuestionHelp(question) {
   }
 
   if (question.type === "short_answer") {
-    return "Short answer.";
+    return question.placeholder || "Short answer.";
   }
 
-  return "Long answer.";
+  return question.placeholder || "Long answer.";
 }
 
 function renderProgress(test) {

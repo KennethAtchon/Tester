@@ -76,6 +76,28 @@ For backwards compatibility, older `choices` arrays are also read as `options`.
 
 Extra fields are fine. For example, `expectedAnswer` or `rubric` can live in the JSON for the AI reviewer, even though the app does not grade automatically.
 
+Rich coding prompts can also include optional fields that the app renders before the answer box:
+
+- `scenario`
+- `task`
+- `requirements`
+- `constraints`
+- `starterCode` or `starter_code`
+- `candidateCode`, `candidate_code`, or `code`
+- `expectedBehavior` or `expected_behavior`
+- `expectedOutput` or `expected_output`
+- `answerFormat` or `answer_format`
+- `source`
+- `details`, as an array of `{ "label": "...", "value": "...", "kind": "text|list|code" }`
+
+Reviewer-only fields are hidden while taking the test but included in exported Markdown so the review request can be graded precisely:
+
+- `expectedAnswer` or `expected_answer`
+- `rubric`
+- `weakSpots` or `weak_spots`
+- `commonMistakes` or `common_mistakes`
+- `redFlags` or `red_flags`
+
 ## Export
 
 After answering questions, use **Save Markdown** to create a response file. Give that Markdown file to an AI and ask it to create a graded results Markdown file with explanations.

@@ -1,5 +1,61 @@
 /* Design Switcher — always on top, theme-agnostic */
 
+/* Rich question metadata is shared by every visual theme. */
+.question-details {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 18px 53px;
+}
+
+.question-detail {
+  padding: 14px 16px;
+  border: 1px solid var(--line, rgba(128, 128, 128, 0.35));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface-raised, Canvas) 78%, transparent);
+}
+
+.question-detail-label {
+  margin-bottom: 8px;
+  color: var(--warm, currentColor);
+  font-family: var(--display-font, -apple-system, BlinkMacSystemFont, sans-serif);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.question-detail p,
+.question-detail-list {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.question-detail-list {
+  padding-left: 20px;
+}
+
+.question-detail-list li + li {
+  margin-top: 6px;
+}
+
+.question-detail pre {
+  max-height: 420px;
+  margin: 0;
+  overflow: auto;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface, Canvas) 86%, #000 14%);
+}
+
+.question-detail code {
+  display: block;
+  padding: 14px;
+  color: var(--ink, CanvasText);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
 .design-switcher {
   position: fixed;
   top: 16px;

@@ -1,0 +1,636 @@
+{
+  "title": "Design Patterns Interview Deep Test",
+  "description": "A rigorous interview-prep test based on Refactoring Guru's catalog of 22 classic design patterns grouped into creational, structural, and behavioral categories. Source: https://refactoring.guru/design-patterns",
+  "tests": [
+    {
+      "id": "pattern-selection-diagnostics",
+      "title": "Pattern Selection Diagnostics",
+      "topic": "Design Patterns: Intent and Tradeoffs",
+      "instructions": "Answer without looking anything up. For every answer, explain why your choice fits and why at least one tempting alternative does not. This section exposes whether you can select patterns from problem forces instead of matching names to definitions.",
+      "questions": [
+        {
+          "id": "classify-by-intent",
+          "type": "multiple_choice",
+          "prompt": "Which statements correctly describe the three major design-pattern groups?",
+          "options": [
+            "Creational patterns primarily control object creation and construction decisions.",
+            "Structural patterns primarily organize objects/classes into larger object structures.",
+            "Behavioral patterns primarily distribute responsibilities and communication between objects.",
+            "Creational patterns primarily optimize CPU and memory performance."
+          ],
+          "requirements": [
+            "Select every true statement.",
+            "For each selected statement, give one concrete pattern example.",
+            "For each unselected statement, explain the misconception."
+          ],
+          "source": "Refactoring Guru classifies patterns by intent into creational, structural, and behavioral groups: https://refactoring.guru/design-patterns/classification",
+          "expectedAnswer": "The first three statements are correct; the fourth is false. Some patterns can improve performance in specific contexts, such as Flyweight, but performance is not the defining intent of the creational group.",
+          "rubric": [
+            "Correctly selects the first three options only.",
+            "Maps examples accurately, such as Factory Method to creational, Adapter to structural, and Observer to behavioral.",
+            "Explains intent rather than memorized category names.",
+            "Does not claim patterns are mainly performance optimizations."
+          ],
+          "weakSpots": [
+            "Confusing category labels with implementation mechanics.",
+            "Treating patterns as performance tools instead of design vocabulary."
+          ]
+        },
+        {
+          "id": "factory-vs-builder",
+          "type": "single_choice",
+          "prompt": "You need to create different notification objects based on user preference: email, SMS, or push. Each object is simple, but the calling code should not know concrete classes. Which pattern is the best first fit?",
+          "options": [
+            "Builder",
+            "Factory Method",
+            "Prototype",
+            "Composite"
+          ],
+          "requirements": [
+            "Pick one answer.",
+            "Explain what problem force makes it fit.",
+            "Explain when Builder would become a better answer."
+          ],
+          "expectedAnswer": "Factory Method is the best fit because the central problem is choosing a product subtype while hiding concrete classes from client code. Builder becomes more attractive when object construction has many independent steps, optional parts, or construction order concerns.",
+          "rubric": [
+            "Chooses Factory Method.",
+            "Mentions decoupling client code from concrete product classes.",
+            "Clearly distinguishes product selection from step-by-step construction.",
+            "Does not use Builder just because the word create appears."
+          ],
+          "weakSpots": [
+            "Overusing Builder for every construction problem.",
+            "Missing the difference between selecting a subtype and assembling an object."
+          ]
+        },
+        {
+          "id": "adapter-vs-facade",
+          "type": "long_answer",
+          "prompt": "A team wraps a legacy payment SDK behind `PaymentGateway.charge(amount, token)`. Internally the SDK still has eight calls, token refresh, retries, and vendor-specific exceptions. Is this Adapter, Facade, both, or neither? Defend your answer.",
+          "answerFormat": "Write 2-4 paragraphs. Name the forces that would make Adapter the better label and the forces that would make Facade the better label.",
+          "expectedAnswer": "A strong answer says it can be both depending on the primary intent. It is Facade if the goal is simplifying a complex subsystem behind a narrow API. It is Adapter if the goal is making an incompatible vendor interface conform to the application's expected `PaymentGateway` interface. In many real systems a wrapper can play both roles, but interview answers should identify the dominant force.",
+          "rubric": [
+            "Recognizes Facade as simplification of a complex subsystem.",
+            "Recognizes Adapter as interface compatibility between otherwise incompatible APIs.",
+            "Explains that real implementations can combine roles without making the concepts identical.",
+            "Avoids saying pattern labels are determined only by class names."
+          ],
+          "weakSpots": [
+            "Treating patterns as mutually exclusive code shapes.",
+            "Ignoring intent and problem context."
+          ]
+        },
+        {
+          "id": "strategy-vs-state",
+          "type": "single_choice",
+          "prompt": "A document editor has `Draft`, `Review`, and `Published` modes. The same `publish()` call behaves differently per mode, and successful calls transition the document to another mode. Which pattern best models this?",
+          "options": [
+            "Strategy",
+            "State",
+            "Template Method",
+            "Command"
+          ],
+          "requirements": [
+            "Pick one answer.",
+            "Name the detail in the prompt that distinguishes it from Strategy.",
+            "Describe one sign that Strategy would be the better answer instead."
+          ],
+          "expectedAnswer": "State is the best answer because behavior depends on the object's current mode and operations can transition the object to a new mode. Strategy is better when the client chooses an interchangeable algorithm and the algorithm choice does not represent the host object's lifecycle state.",
+          "rubric": [
+            "Chooses State.",
+            "Mentions lifecycle mode and transitions.",
+            "Contrasts with interchangeable algorithm selection in Strategy.",
+            "Avoids saying Strategy and State are identical because both use composition."
+          ],
+          "weakSpots": [
+            "Confusing same implementation shape with same intent.",
+            "Missing state transitions as the key clue."
+          ]
+        },
+        {
+          "id": "anti-pattern-overengineering",
+          "type": "long_answer",
+          "prompt": "You see a `UserNameFactoryBuilderProviderSingleton` used to create a string after trimming whitespace. What is wrong with this design, and how would you refactor it?",
+          "answerFormat": "Answer like you are in a code review. Be concrete and propose the simplest replacement.",
+          "expectedAnswer": "A good answer flags speculative generality and pattern overuse. Trimming and validating a string probably needs a simple function, value object, or inline validation depending on reuse and invariants. The refactor should remove fake abstractions, keep behavior explicit, and preserve any real domain rules.",
+          "rubric": [
+            "Identifies overengineering instead of praising pattern usage.",
+            "Proposes a simpler function or focused value object based on actual invariants.",
+            "Mentions preserving tests/behavior while removing accidental complexity.",
+            "Avoids replacing one unnecessary pattern stack with another."
+          ],
+          "weakSpots": [
+            "Believing more pattern names means better architecture.",
+            "Not separating domain invariants from incidental ceremony."
+          ]
+        },
+        {
+          "id": "interview-pattern-smell",
+          "type": "true_false",
+          "prompt": "True or false: In an interview, it is usually enough to name the pattern that fits a problem. The implementation details are secondary.",
+          "requirements": [
+            "Choose true or false.",
+            "Justify with what an interviewer is really testing.",
+            "Give one example of a pattern answer that would be weak even if the pattern name is correct."
+          ],
+          "expectedAnswer": "False. Interviewers usually test whether you understand forces, tradeoffs, boundaries, and failure modes. A candidate can name Strategy correctly but fail by not explaining how clients choose strategies, where state lives, how to test each algorithm, or why a simple function map may be enough.",
+          "rubric": [
+            "Answers false.",
+            "Explains that reasoning and tradeoffs matter more than vocabulary.",
+            "Provides a concrete weak-answer example.",
+            "Shows awareness of overengineering risk."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "creational-patterns-implementation",
+      "title": "Creational Patterns: Implement This",
+      "topic": "Factory Method, Abstract Factory, Builder, Prototype, Singleton",
+      "instructions": "This section is intentionally code-heavy. Write JavaScript or TypeScript-like pseudocode. Focus on object boundaries, dependency direction, and testability. Do not hide behind prose only.",
+      "questions": [
+        {
+          "id": "implement-factory-method",
+          "type": "long_answer",
+          "language": "javascript",
+          "prompt": "Implement a Factory Method-style solution for importing files from CSV and JSON without `ImportJob` knowing concrete parser classes.",
+          "scenario": "`ImportJob` receives a file path and should parse records. Today it has `if (ext === '.csv')` and `if (ext === '.json')` branches mixed with job orchestration. You expect XML later, but not yet.",
+          "starterCode": "class ImportJob {\n  constructor(filePath) {\n    this.filePath = filePath;\n  }\n\n  async run() {\n    // Remove concrete parser selection from this method.\n  }\n}\n\nclass CsvParser {\n  async parse(filePath) { return []; }\n}\n\nclass JsonParser {\n  async parse(filePath) { return []; }\n}",
+          "requirements": [
+            "Show the creator/factory method boundary.",
+            "Keep `ImportJob.run()` focused on orchestration.",
+            "Make the answer easy to unit test without real file IO.",
+            "Do not implement XML unless your design shows how it would be added later."
+          ],
+          "constraints": [
+            "Avoid global mutable registries unless you justify them.",
+            "Avoid a giant switch inside `run()`.",
+            "A small switch in a dedicated factory is acceptable if you explain the tradeoff."
+          ],
+          "answerFormat": "Provide code plus a short explanation of why this is Factory Method rather than Builder or Abstract Factory.",
+          "expectedAnswer": "A strong answer extracts parser creation into a factory method on a creator class or into a dedicated factory dependency, so `run()` asks for a parser through an abstraction and then orchestrates parsing. It should keep parser implementations swappable and testable. It should not overcomplicate the design with Abstract Factory unless families of related products exist.",
+          "rubric": [
+            "Separates product creation from job orchestration.",
+            "Uses a parser interface/protocol clearly, even if in JS pseudocode.",
+            "Keeps future XML extension localized.",
+            "Explains why Builder and Abstract Factory are not the main fit.",
+            "Includes testability through dependency injection or a small overrideable factory method."
+          ],
+          "redFlags": [
+            "Leaves file type branching in `run()`.",
+            "Uses Singleton for parsers without a reason.",
+            "Builds a plugin framework for two parsers without explaining the cost."
+          ]
+        },
+        {
+          "id": "abstract-factory-ui",
+          "type": "long_answer",
+          "language": "typescript",
+          "prompt": "Design an Abstract Factory for rendering platform-specific UI controls for Web and Native without mixing control families.",
+          "scenario": "A cross-platform settings screen needs `Button`, `Toggle`, and `TextInput`. Web controls must use DOM events. Native controls must use native event bridges. Mixing a Web button with a Native toggle in the same screen should be impossible or very obvious in code review.",
+          "requirements": [
+            "Define the abstract factory interface.",
+            "Define at least two concrete factories.",
+            "Show client code that receives the factory and builds the screen.",
+            "Explain the product-family invariant."
+          ],
+          "answerFormat": "Code-first answer. Then explain how this differs from Factory Method.",
+          "expectedAnswer": "A strong answer defines a UI factory with methods such as `createButton`, `createToggle`, and `createTextInput`, then implements `WebUIFactory` and `NativeUIFactory`. Client code depends on the abstract factory and receives a consistent product family. The key distinction from Factory Method is creating families of related products, not just one product hierarchy.",
+          "rubric": [
+            "Creates multiple related product types through one factory interface.",
+            "Maintains family consistency across Web and Native products.",
+            "Keeps client code unaware of concrete products.",
+            "Contrasts correctly with Factory Method."
+          ],
+          "weakSpots": [
+            "Using a single method factory and calling it Abstract Factory.",
+            "Forgetting the related-family constraint."
+          ]
+        },
+        {
+          "id": "builder-query-object",
+          "type": "long_answer",
+          "language": "typescript",
+          "prompt": "Implement a Builder for a search query object with optional filters, sorting, pagination, and validation.",
+          "scenario": "A search API accepts many optional parameters. Call sites currently pass huge object literals, and invalid combinations are common: `pageSize` without `page`, descending sort without a sort field, and both `createdBefore` and `createdAfter` in the wrong order.",
+          "starterCode": "type SearchQuery = {\n  text: string;\n  tags?: string[];\n  sortBy?: 'createdAt' | 'relevance';\n  sortDirection?: 'asc' | 'desc';\n  page?: number;\n  pageSize?: number;\n  createdAfter?: Date;\n  createdBefore?: Date;\n};",
+          "requirements": [
+            "Make common valid construction readable.",
+            "Centralize validation in `build()` or equivalent.",
+            "Show at least two call-site examples.",
+            "Explain why a plain object may be enough in simpler cases."
+          ],
+          "expectedAnswer": "A strong answer uses fluent or stepwise builder methods and validates cross-field invariants at build time. It should show readable call sites and avoid pretending Builder is required for every object literal. For TypeScript, a staged builder can get extra credit if it prevents some invalid states at compile time without becoming unreadable.",
+          "rubric": [
+            "Centralizes construction and validation.",
+            "Handles optional fields without long parameter lists.",
+            "Demonstrates readable client code.",
+            "Discusses when not to use Builder.",
+            "Does not hide validation in scattered setters."
+          ]
+        },
+        {
+          "id": "prototype-copying",
+          "type": "long_answer",
+          "language": "javascript",
+          "prompt": "You need to clone a configured workflow template and customize a few fields per customer. Design a Prototype-based approach and identify the dangerous shallow-copy edge case.",
+          "scenario": "A `WorkflowTemplate` has nested arrays of steps, retry policies, and notification rules. New customers often start from the same base workflow but customize individual nested rules.",
+          "requirements": [
+            "Show a `clone()` or equivalent prototype operation.",
+            "Explain what must be deep copied and what can be shared.",
+            "Show one bug that happens if nested mutable objects are shared accidentally.",
+            "Explain how you would test the clone behavior."
+          ],
+          "expectedAnswer": "A strong answer uses cloning to avoid recreating a complex configured object from scratch, but it carefully distinguishes immutable shared data from mutable nested state. It should call out that shallow copying nested arrays or objects can cause edits in one customer workflow to mutate another customer's workflow.",
+          "rubric": [
+            "Uses prototype cloning for a preconfigured object.",
+            "Identifies nested mutable state as the main correctness risk.",
+            "Shows a concrete shallow-copy bug.",
+            "Includes tests proving clone independence where needed."
+          ]
+        },
+        {
+          "id": "singleton-critique",
+          "type": "long_answer",
+          "prompt": "A candidate proposes a Singleton `DatabaseConnection` because every service needs the database. Critique the design in interview-level detail.",
+          "requirements": [
+            "List at least three risks.",
+            "Explain when a singleton-like lifecycle can still be acceptable.",
+            "Propose a more testable alternative for application code.",
+            "Be precise about global state vs single instance."
+          ],
+          "expectedAnswer": "A strong answer distinguishes having one configured instance in the composition root from hard-coding a global Singleton. Risks include hidden dependencies, test isolation problems, lifecycle/order issues, concurrency/resource cleanup concerns, and difficulty substituting fakes. A dependency-injected connection pool or repository interface is usually more testable.",
+          "rubric": [
+            "Does not reflexively say Singleton is always evil or always good.",
+            "Names concrete risks around global access and tests.",
+            "Distinguishes single instance lifetime from Singleton pattern mechanics.",
+            "Proposes dependency injection/composition root as an alternative."
+          ],
+          "weakSpots": [
+            "Missing the hidden dependency problem.",
+            "Confusing process-wide resource ownership with direct global access."
+          ]
+        },
+        {
+          "id": "creational-comparison",
+          "type": "short_answer",
+          "prompt": "In one dense paragraph, compare Factory Method, Abstract Factory, Builder, Prototype, and Singleton by the specific creation problem each solves.",
+          "placeholder": "Aim for 5 precise sentences, one per pattern.",
+          "expectedAnswer": "Factory Method delegates creation of one product hierarchy; Abstract Factory creates families of related products; Builder constructs complex objects step by step; Prototype creates new objects by copying an existing configured object; Singleton restricts a class to one globally accessible instance, which is often risky in application code.",
+          "rubric": [
+            "One precise creation problem per pattern.",
+            "No category errors between Factory Method and Abstract Factory.",
+            "Mentions Singleton's global-access tradeoff.",
+            "Avoids vague definitions like 'creates objects better'."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "structural-patterns-code-review",
+      "title": "Structural Patterns: Code Review and Design Repair",
+      "topic": "Adapter, Bridge, Composite, Decorator, Facade, Flyweight, Proxy",
+      "instructions": "Read each scenario like a senior engineer reviewing a design proposal. Your answer should identify coupling, extension points, object ownership, and where the pattern boundary belongs.",
+      "questions": [
+        {
+          "id": "implement-adapter",
+          "type": "long_answer",
+          "language": "typescript",
+          "prompt": "Implement an Adapter so application code can use a new vendor shipping API through the existing `ShippingProvider` interface.",
+          "scenario": "Your app expects `quote(destination, weightKg)` returning `{ amountCents, etaDays }`. The vendor SDK exposes `calculateRate({ postalCode, grams })` returning `{ total: '12.34', estimatedDeliveryWindow: '3-5 days' }`.",
+          "starterCode": "interface ShippingProvider {\n  quote(destination: { postalCode: string }, weightKg: number): Promise<{ amountCents: number; etaDays: number }>;\n}\n\nclass VendorSdk {\n  async calculateRate(input: { postalCode: string; grams: number }): Promise<{ total: string; estimatedDeliveryWindow: string }> {\n    return { total: '12.34', estimatedDeliveryWindow: '3-5 days' };\n  }\n}",
+          "requirements": [
+            "Show the adapter class.",
+            "Translate units and result shape explicitly.",
+            "Handle ambiguous delivery windows in a deliberate way.",
+            "Show how client code depends only on `ShippingProvider`."
+          ],
+          "expectedAnswer": "A strong answer implements a class such as `VendorShippingAdapter implements ShippingProvider`, converts kg to grams, parses money to cents, chooses a documented eta policy, and keeps vendor SDK details outside application client code.",
+          "rubric": [
+            "Implements the expected interface.",
+            "Performs all data translations explicitly.",
+            "Keeps vendor types from leaking into clients.",
+            "Documents or encodes delivery-window ambiguity."
+          ]
+        },
+        {
+          "id": "bridge-explosion",
+          "type": "long_answer",
+          "prompt": "A drawing app has `RedCircle`, `BlueCircle`, `RedSquare`, `BlueSquare`, and now needs gradients plus SVG/Canvas renderers. Explain how Bridge fixes the class explosion.",
+          "requirements": [
+            "Identify the two independent dimensions.",
+            "Sketch the abstraction and implementation sides.",
+            "Explain how adding a new shape differs from adding a new renderer or color style.",
+            "Name one situation where Bridge would be overkill."
+          ],
+          "expectedAnswer": "A strong answer separates shape abstraction from rendering/color implementation, so shape types and rendering styles can vary independently. For example, `Shape` composes a `Renderer` or `StyleRenderer`; `Circle` and `Square` delegate drawing details. It is overkill if there is only one axis of variation or no realistic extension pressure.",
+          "rubric": [
+            "Finds independent dimensions instead of merely moving methods around.",
+            "Uses composition between abstraction and implementation.",
+            "Explains extension without subclass multiplication.",
+            "Includes a sensible overkill case."
+          ]
+        },
+        {
+          "id": "composite-tree-total",
+          "type": "long_answer",
+          "language": "javascript",
+          "prompt": "Implement Composite for a shopping bundle where both individual products and nested bundles can report total price and item count.",
+          "starterCode": "// Product: name + priceCents\n// Bundle: name + children, where children can be products or bundles\n// Required API: getPriceCents(), getItemCount(), describe(indent = 0)",
+          "requirements": [
+            "Use a common component interface or duck-typed equivalent.",
+            "Support nested bundles recursively.",
+            "Make client code treat products and bundles uniformly.",
+            "Mention one risk of Composite in mutable trees."
+          ],
+          "expectedAnswer": "A strong answer defines a common component protocol for leaf products and composite bundles. Bundle operations recurse through children, while clients call the same methods regardless of leaf/composite type. Risks include cycles, parent ownership confusion, and mutation invalidating cached totals.",
+          "rubric": [
+            "Defines uniform operations for leaves and composites.",
+            "Handles nested recursion correctly.",
+            "Shows client uniformity.",
+            "Names a real mutable-tree risk."
+          ]
+        },
+        {
+          "id": "decorator-vs-inheritance",
+          "type": "long_answer",
+          "language": "typescript",
+          "prompt": "Refactor notification features from inheritance to Decorator. Features include Slack delivery, retry, metrics, and encryption.",
+          "scenario": "The current hierarchy has `SlackNotifier`, `RetryingSlackNotifier`, `EncryptedRetryingSlackNotifier`, and `MetricsEncryptedRetryingSlackNotifier`. More combinations are coming.",
+          "requirements": [
+            "Define a common notifier interface.",
+            "Show at least two decorators wrapping another notifier.",
+            "Show composition at the call site.",
+            "Explain order sensitivity between decorators."
+          ],
+          "expectedAnswer": "A strong answer composes decorators around a base notifier, such as `new MetricsNotifier(new RetryNotifier(new EncryptingNotifier(new SlackNotifier())))`. It should explain that order can matter, for example metrics outside retry measures total attempts differently than metrics inside retry.",
+          "rubric": [
+            "Uses composition over subclass combinations.",
+            "Decorators implement the same interface as the wrapped object.",
+            "Shows runtime feature composition.",
+            "Identifies order-sensitive behavior."
+          ]
+        },
+        {
+          "id": "proxy-or-decorator",
+          "type": "single_choice",
+          "prompt": "A service object loads a 50 MB report from a remote API. You add an object with the same interface that lazily fetches the report on first access, caches it, and checks authorization before delegating. Which pattern is the best label?",
+          "options": [
+            "Proxy",
+            "Decorator",
+            "Composite",
+            "Bridge"
+          ],
+          "requirements": [
+            "Pick one answer.",
+            "Explain why Decorator is tempting but not primary here.",
+            "Name the proxy variants involved."
+          ],
+          "expectedAnswer": "Proxy is the best label because the wrapper controls access to the real subject, including lazy loading, caching, and authorization. Decorator is tempting because it shares the same interface and wraps another object, but Decorator's main intent is adding responsibilities while Proxy controls access. The variants include virtual proxy, protection proxy, and caching proxy.",
+          "rubric": [
+            "Chooses Proxy.",
+            "Explains access control vs added behavior.",
+            "Names virtual/protection/caching proxy accurately.",
+            "Does not rely only on the fact that there is a wrapper."
+          ]
+        },
+        {
+          "id": "flyweight-memory",
+          "type": "long_answer",
+          "prompt": "A game renders 100,000 trees. Each tree has x/y coordinates and health, but many share species, mesh, bark texture, and leaf texture. Design a Flyweight split.",
+          "requirements": [
+            "Separate intrinsic from extrinsic state.",
+            "Show where shared flyweights are stored/reused.",
+            "Explain why mutating shared state is dangerous.",
+            "Give one performance or complexity tradeoff."
+          ],
+          "expectedAnswer": "A strong answer stores shared immutable tree type data, such as species and textures, in flyweight objects, while each tree instance keeps extrinsic state like position and health. A factory or cache reuses flyweights by key. Mutating shared texture/species state can accidentally affect many trees.",
+          "rubric": [
+            "Correctly separates intrinsic and extrinsic state.",
+            "Uses a factory/cache for sharing.",
+            "Explains shared mutable-state danger.",
+            "Mentions lookup/cache complexity or memory/performance tradeoff."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "behavioral-patterns-scenarios",
+      "title": "Behavioral Patterns: Scenario Reasoning",
+      "topic": "Chain, Command, Iterator, Mediator, Memento, Observer, State, Strategy, Template Method, Visitor",
+      "instructions": "Behavioral patterns are easy to confuse because many move behavior into separate objects. For each answer, identify who owns the behavior, who calls whom, and what changes independently.",
+      "questions": [
+        {
+          "id": "command-undo",
+          "type": "long_answer",
+          "language": "typescript",
+          "prompt": "Implement Command for a text editor with undoable `insertText` and `deleteRange` operations.",
+          "requirements": [
+            "Define a command interface with execute and undo or equivalent.",
+            "Show how command history is stored.",
+            "Show one concrete command with enough state to undo correctly.",
+            "Explain what breaks if commands do not capture prior state."
+          ],
+          "expectedAnswer": "A strong answer encapsulates operations and undo data in command objects, pushes executed commands onto a history stack, and restores prior document state or inverse operations during undo. It should show that delete must remember deleted text and position, not just the range.",
+          "rubric": [
+            "Uses command objects to encapsulate requests.",
+            "Stores history outside individual UI buttons.",
+            "Captures enough state for undo.",
+            "Explains failure mode when prior state is missing."
+          ]
+        },
+        {
+          "id": "chain-of-responsibility-auth",
+          "type": "long_answer",
+          "prompt": "Design a Chain of Responsibility for request handling with authentication, rate limiting, input validation, and final business handler.",
+          "requirements": [
+            "Show the handler interface or function shape.",
+            "Explain pass/stop behavior.",
+            "Describe how errors short-circuit the chain.",
+            "Compare briefly with middleware pipelines."
+          ],
+          "expectedAnswer": "A strong answer models each step as a handler that can process, reject, or delegate to the next handler. It should note that many web middleware pipelines are Chain of Responsibility-like, especially when each middleware decides whether to continue or stop.",
+          "rubric": [
+            "Defines next-handler delegation.",
+            "Explains short-circuiting clearly.",
+            "Keeps responsibilities separated per handler.",
+            "Accurately compares with middleware without overstating identity."
+          ]
+        },
+        {
+          "id": "observer-event-bug",
+          "type": "long_answer",
+          "language": "javascript",
+          "prompt": "Find the bug risk in this Observer implementation and rewrite the dangerous part.",
+          "candidateCode": "class Store {\n  constructor() {\n    this.listeners = [];\n    this.state = {};\n  }\n\n  subscribe(listener) {\n    this.listeners.push(listener);\n  }\n\n  setState(next) {\n    this.state = next;\n    for (const listener of this.listeners) {\n      listener(this.state);\n    }\n  }\n}",
+          "requirements": [
+            "Identify at least two production risks.",
+            "Show a safer `subscribe`/unsubscribe design.",
+            "Address listener mutation during notification.",
+            "Mention synchronous vs asynchronous notification tradeoffs."
+          ],
+          "expectedAnswer": "A strong answer flags missing unsubscribe, memory leaks, listener mutation while iterating, listener exceptions stopping later listeners, and potential reentrancy. Safer code returns an unsubscribe function, snapshots listeners during notification, and decides how to isolate exceptions.",
+          "rubric": [
+            "Identifies missing unsubscribe.",
+            "Handles mutation during iteration with a snapshot or Set strategy.",
+            "Discusses error isolation/reentrancy.",
+            "Does not confuse Observer with Pub/Sub without noting coupling differences."
+          ]
+        },
+        {
+          "id": "mediator-chat-room",
+          "type": "single_choice",
+          "prompt": "Several UI widgets on a checkout page update each other: shipping address changes tax, tax changes total, coupon changes total, total changes financing options, and financing selection changes submit availability. You centralize coordination in a `CheckoutCoordinator` instead of widgets calling each other. Which pattern is the best fit?",
+          "options": [
+            "Mediator",
+            "Observer",
+            "Visitor",
+            "Memento"
+          ],
+          "requirements": [
+            "Pick one answer.",
+            "Explain why Observer is tempting.",
+            "Explain the coupling problem the selected pattern reduces."
+          ],
+          "expectedAnswer": "Mediator is the best fit because it centralizes complex many-to-many coordination so widgets do not directly reference and update each other. Observer is tempting because changes are being broadcast, but Observer alone can still leave tangled reactions distributed across subscribers.",
+          "rubric": [
+            "Chooses Mediator.",
+            "Names many-to-many widget coupling.",
+            "Contrasts centralized coordination with event notification.",
+            "Avoids using Observer as a catch-all for all UI communication."
+          ]
+        },
+        {
+          "id": "template-vs-strategy",
+          "type": "long_answer",
+          "prompt": "You have an ETL pipeline: extract, validate, transform, load, report. Some clients customize only validation and transform. Compare Template Method and Strategy for this design.",
+          "requirements": [
+            "Describe a Template Method design.",
+            "Describe a Strategy-based design.",
+            "Discuss inheritance vs composition tradeoffs.",
+            "Choose one for a codebase where runtime per-customer customization is required."
+          ],
+          "expectedAnswer": "A strong answer says Template Method defines the pipeline skeleton in a base class with overridable steps, while Strategy composes interchangeable validation/transform algorithms. Runtime per-customer customization usually favors Strategy/composition because strategies can be injected/configured without subclass proliferation.",
+          "rubric": [
+            "Correctly defines Template Method skeleton plus hooks.",
+            "Correctly defines Strategy as interchangeable algorithms.",
+            "Discusses inheritance coupling vs composition flexibility.",
+            "Chooses Strategy for runtime customization and explains why."
+          ]
+        },
+        {
+          "id": "visitor-expression-tree",
+          "type": "long_answer",
+          "prompt": "An expression tree has nodes `NumberLiteral`, `Add`, and `Multiply`. You need evaluation, pretty printing, and later type checking. Explain how Visitor helps and what tradeoff it introduces.",
+          "requirements": [
+            "Identify what is stable and what changes.",
+            "Sketch visitor methods for the node types.",
+            "Explain why adding a new operation is easy.",
+            "Explain why adding a new node type is harder."
+          ],
+          "expectedAnswer": "A strong answer recognizes stable node classes and growing operations. Visitor lets new operations be added as new visitors without editing every node's core logic, but adding a new node type requires updating the visitor interface and every existing visitor.",
+          "rubric": [
+            "Identifies stable object structure vs changing operations.",
+            "Shows double-dispatch or accept/visit shape.",
+            "Names easy new operations.",
+            "Names hard new element types."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "synthesis-interview-simulation",
+      "title": "Synthesis Interview Simulation",
+      "topic": "End-to-End Design Pattern Judgment",
+      "instructions": "These are capstone questions. Treat them like a 45-minute interview segment: clarify requirements, propose a design, justify tradeoffs, and say what you would not build yet.",
+      "questions": [
+        {
+          "id": "plugin-architecture",
+          "type": "long_answer",
+          "language": "typescript",
+          "prompt": "Design a plugin architecture for document export: PDF, HTML, Markdown, and future customer-provided exporters.",
+          "scenario": "The app owns document models. Exporters need access to read-only document data, configuration, progress reporting, and cancellation. Some exporters will be first-party, some third-party. Product wants undo for export configuration changes, not for file generation itself.",
+          "requirements": [
+            "Use at least two patterns, but only where they pay for themselves.",
+            "Show the core interfaces in code or pseudocode.",
+            "Discuss extension, testing, and isolation of third-party code.",
+            "Explain what you would deliberately keep simple."
+          ],
+          "answerFormat": "Structure as: assumptions, proposed design, pattern choices, code sketch, tradeoffs, tests.",
+          "expectedAnswer": "A strong answer might use Strategy for exporter algorithms, Factory Method or registry-based factory for selecting exporters, Command/Memento for undoable configuration changes, and Facade/Adapter boundaries for third-party exporters. It should avoid cramming in every pattern and should discuss sandboxing/isolation as an architectural concern beyond GoF patterns.",
+          "rubric": [
+            "Chooses patterns from forces, not from a quota.",
+            "Defines stable interfaces for exporters and document read models.",
+            "Handles third-party isolation/testability realistically.",
+            "Separates export generation from undoable configuration changes.",
+            "Explicitly states what remains simple."
+          ],
+          "redFlags": [
+            "Uses Singleton registry as hidden global state without lifecycle control.",
+            "Lets third-party exporters mutate document internals directly.",
+            "Applies Visitor without explaining why document node types are stable."
+          ]
+        },
+        {
+          "id": "refactor-switch-to-pattern",
+          "type": "long_answer",
+          "language": "javascript",
+          "prompt": "Refactor this pricing switch. Choose the simplest pattern or non-pattern solution that is interview-defensible.",
+          "candidateCode": "function price(order, customer) {\n  let total = order.items.reduce((sum, item) => sum + item.priceCents * item.quantity, 0);\n\n  switch (customer.plan) {\n    case 'standard':\n      break;\n    case 'pro':\n      total *= 0.9;\n      break;\n    case 'enterprise':\n      total *= 0.8;\n      if (order.items.length > 100) total -= 5000;\n      break;\n    default:\n      throw new Error('Unknown plan');\n  }\n\n  if (customer.country === 'US') total *= 1.07;\n  if (customer.country === 'CA') total *= 1.13;\n\n  return Math.round(total);\n}",
+          "requirements": [
+            "Identify at least two axes of change.",
+            "Choose Strategy, Chain of Responsibility, simple maps, or another approach and justify it.",
+            "Show a refactored sketch.",
+            "Say what tests would catch regressions."
+          ],
+          "expectedAnswer": "A strong answer identifies plan discount rules and tax rules as separate axes. Strategy is defensible for plan pricing if rules vary by plan and grow independently; a simple map of functions may be sufficient before introducing classes. Tax can be a separate strategy/table/service. The answer should not blindly create one class per line of code unless extension pressure justifies it.",
+          "rubric": [
+            "Separates plan pricing from tax calculation.",
+            "Chooses an appropriately simple abstraction.",
+            "Shows code that is easier to extend and test.",
+            "Avoids overengineering while still handling real change axes.",
+            "Lists tests for each plan/country combination and edge cases."
+          ]
+        },
+        {
+          "id": "pattern-debugging",
+          "type": "long_answer",
+          "prompt": "A team used Observer, Command, and Memento for a collaborative whiteboard. Users report that undo sometimes removes another user's shape and sometimes redraw events loop forever. Diagnose likely design mistakes.",
+          "requirements": [
+            "Explain at least three plausible root causes.",
+            "Tie each cause to a misused pattern boundary.",
+            "Propose a safer event/command/state model.",
+            "Describe a test or trace that would prove the bug."
+          ],
+          "expectedAnswer": "A strong answer considers global undo history instead of per-user/per-document command streams, mementos capturing shared mutable state by reference, observers re-emitting events without origin/version checks, and commands not being idempotent. A safer model separates local intent commands, authoritative document events, immutable snapshots or patches, and subscriber guards against reentrancy.",
+          "rubric": [
+            "Diagnoses cross-user undo as ownership/scope confusion.",
+            "Diagnoses event loops as Observer reentrancy/origin problems.",
+            "Diagnoses state corruption as mutable snapshot/reference problems.",
+            "Proposes a coherent safer model.",
+            "Includes concrete traces/tests."
+          ]
+        },
+        {
+          "id": "choose-three-patterns",
+          "type": "long_answer",
+          "prompt": "Pick three patterns from Refactoring Guru's catalog that you would be most comfortable defending in a senior interview. For each, give a production scenario, a minimal implementation shape, a failure mode, and a test strategy.",
+          "requirements": [
+            "Use three different pattern categories if possible.",
+            "Do not repeat examples from earlier answers unless you improve them.",
+            "Include one scenario where you would reject the pattern as overkill.",
+            "Be specific enough that a reviewer can grade your judgment."
+          ],
+          "expectedAnswer": "There is no single correct set of three patterns. Strong answers demonstrate clear intent, practical implementation, risks, tests, and restraint. The best answers show category breadth and can reject a pattern when a simpler construct is enough.",
+          "rubric": [
+            "Shows accurate understanding of three patterns.",
+            "Includes production-realistic scenarios.",
+            "Names real failure modes and tests.",
+            "Demonstrates restraint and overkill awareness.",
+            "Avoids vague textbook definitions."
+          ]
+        }
+      ]
+    }
+  ]
+}
