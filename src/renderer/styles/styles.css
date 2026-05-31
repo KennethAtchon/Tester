@@ -729,6 +729,115 @@ input[type="text"] {
   accent-color: var(--accent);
 }
 
+/* Code runner: editor + sandboxed test results */
+.code-runner {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.code-editor {
+  min-height: 240px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.code-runner-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.run-button {
+  flex: 0 0 auto;
+}
+
+.run-summary {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.run-summary.pass {
+  color: var(--accent-strong);
+}
+
+.run-summary.fail {
+  color: var(--danger);
+}
+
+.run-results {
+  display: grid;
+  gap: 8px;
+}
+
+.run-results:empty {
+  display: none;
+}
+
+.run-test {
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: 7px;
+  padding: 10px 13px;
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+}
+
+.run-test.pass {
+  border-left-color: var(--accent);
+}
+
+.run-test.fail {
+  border-left-color: var(--danger);
+}
+
+.run-test-head {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.run-test-detail {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  overflow: auto;
+  background: color-mix(in srgb, var(--surface) 86%, #000 14%);
+  color: var(--ink);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.run-test-detail.error {
+  color: var(--danger);
+}
+
+.run-logs-label {
+  margin-top: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.run-logs {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  overflow: auto;
+  background: color-mix(in srgb, var(--surface) 86%, #000 14%);
+  color: var(--muted);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 @media (max-width: 1050px) {
   .workspace-header {
     grid-template-columns: minmax(0, 1fr);

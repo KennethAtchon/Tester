@@ -631,6 +631,238 @@
           ]
         }
       ]
+    },
+    {
+      "id": "runnable-system-design",
+      "title": "Runnable System Design",
+      "topic": "Live-Coded Building Blocks: caching, rate limiting, sharding, retries",
+      "instructions": "These questions execute. Write JavaScript in the editor and press Run to evaluate your solution against hidden-free test cases in a sandbox. There is no partial credit from prose here: your code must satisfy the stated contract. Optimize for correct invariants first, then comment on the system-design tradeoffs (eviction policy, clock source, key distribution, thundering herd). The sandbox blocks file, network, and module access, and kills runaway loops.",
+      "questions": [
+        {
+          "id": "lru-cache",
+          "type": "code_run",
+          "language": "javascript",
+          "prompt": "Implement an O(1) LRU cache. This is the backing structure for a read-through cache in front of a hot database.",
+          "scenario": "A service caches user profiles. Reads vastly outnumber writes, working set exceeds memory, and you must evict the least-recently-used entry on overflow. Every get and put must be O(1) average; a linear scan to find the LRU entry will not pass under load.",
+          "requirements": [
+            "Export a factory `createLRU(capacity)`.",
+            "`get(key)` returns the stored value, or `null` if the key is absent or evicted.",
+            "`get` counts as a use and makes the key most-recently-used.",
+            "`put(key, value)` inserts or updates; updating also counts as a use.",
+            "When size exceeds `capacity`, evict exactly the least-recently-used key.",
+            "Both operations must be O(1) average — no array scans for the LRU entry."
+          ],
+          "constraints": [
+            "Capacity is a positive integer.",
+            "Do not use a timestamp-sort eviction; that is O(n log n) per access."
+          ],
+          "starterCode": "function createLRU(capacity) {\n  // A JS Map preserves insertion order — use that to your advantage.\n  const store = new Map();\n\n  return {\n    get(key) {\n      // TODO: return value (and mark most-recently-used) or null.\n    },\n    put(key, value) {\n      // TODO: insert/update, then evict LRU if over capacity.\n    }\n  };\n}",
+          "tests": [
+            {
+              "name": "returns null for missing keys",
+              "call": "(() => { const c = createLRU(2); return c.get('nope'); })()",
+              "expect": null
+            },
+            {
+              "name": "stores and retrieves values",
+              "call": "(() => { const c = createLRU(2); c.put('a', 1); c.put('b', 2); return [c.get('a'), c.get('b')]; })()",
+              "expect": [1, 2]
+            },
+            {
+              "name": "evicts the least-recently-used entry",
+              "call": "(() => { const c = createLRU(2); c.put('a', 1); c.put('b', 2); c.get('a'); c.put('c', 3); return [c.get('a'), c.get('b'), c.get('c')]; })()",
+              "expect": [1, null, 3]
+            },
+            {
+              "name": "updating an existing key refreshes recency",
+              "call": "(() => { const c = createLRU(2); c.put('a', 1); c.put('b', 2); c.put('a', 10); c.put('c', 3); return [c.get('a'), c.get('b'), c.get('c')]; })()",
+              "expect": [10, null, 3]
+            },
+            {
+              "name": "stays O(1)-feasible across many operations",
+              "call": "(() => { const c = createLRU(100); for (let i = 0; i < 5000; i++) c.put('k' + (i % 150), i); let hits = 0; for (let i = 0; i < 150; i++) if (c.get('k' + i) !== null) hits++; return hits; })()",
+              "expect": 100
+            }
+          ],
+          "expectedAnswer": "A Map-backed LRU: on get, if present, delete then re-set the key to move it to the most-recent end and return the value, else return null. On put, delete the key if present (so re-insert moves it to the end), set it, then if size > capacity delete the first key from map.keys().next().value. Map insertion order gives O(1) recency tracking without a hand-rolled doubly linked list.",
+          "rubric": [
+            "get and put are O(1) average (no scans).",
+            "Eviction removes exactly the LRU key.",
+            "get and put both update recency.",
+            "Returns null (not undefined) for misses, per contract.",
+            "Mentions the read-through/write policy or eviction-policy tradeoff."
+          ],
+          "redFlags": [
+            "Sorting entries by timestamp on each access.",
+            "Evicting the most-recently-used or a random entry.",
+            "Returning stale values for evicted keys."
+          ]
+        },
+        {
+          "id": "token-bucket-limiter",
+          "type": "code_run",
+          "language": "javascript",
+          "prompt": "Implement a token-bucket rate limiter with an injectable clock so it is deterministically testable.",
+          "scenario": "An API gateway must allow short bursts up to a capacity but enforce a steady long-run rate. The wall clock must be injected (passed into `allow`) so the limiter is testable and so the same code works for both real time and simulation.",
+          "requirements": [
+            "Export `createLimiter({ capacity, refillPerMs })`.",
+            "The bucket starts full (capacity tokens).",
+            "`allow(now)` returns `true` and consumes one token if at least one is available, else returns `false` and consumes nothing.",
+            "Between calls, refill `refillPerMs * elapsedMs` tokens, capped at `capacity`.",
+            "Tokens never exceed capacity and never go negative.",
+            "`now` is monotonic non-decreasing milliseconds."
+          ],
+          "constraints": [
+            "Do not call Date.now() — the clock is injected via `now`.",
+            "Fractional tokens are allowed internally; only whole tokens are consumed."
+          ],
+          "starterCode": "function createLimiter({ capacity, refillPerMs }) {\n  let tokens = capacity;\n  let last = null; // timestamp of the previous refill\n\n  return {\n    allow(now) {\n      // TODO: refill based on elapsed time since `last`, cap at capacity,\n      // then consume one token if available.\n    }\n  };\n}",
+          "tests": [
+            {
+              "name": "allows a burst up to capacity then blocks",
+              "call": "(() => { const l = createLimiter({ capacity: 2, refillPerMs: 0.001 }); return [l.allow(0), l.allow(0), l.allow(0)]; })()",
+              "expect": [true, true, false]
+            },
+            {
+              "name": "refills over time at the configured rate",
+              "call": "(() => { const l = createLimiter({ capacity: 2, refillPerMs: 0.001 }); l.allow(0); l.allow(0); return [l.allow(0), l.allow(1000)]; })()",
+              "expect": [false, true]
+            },
+            {
+              "name": "never accumulates beyond capacity while idle",
+              "call": "(() => { const l = createLimiter({ capacity: 3, refillPerMs: 0.001 }); l.allow(0); l.allow(0); l.allow(0); return [l.allow(100000), l.allow(100000), l.allow(100000), l.allow(100000)]; })()",
+              "expect": [true, true, true, false]
+            },
+            {
+              "name": "steady rate over a long window",
+              "call": "(() => { const l = createLimiter({ capacity: 1, refillPerMs: 0.001 }); let ok = 0; for (let t = 0; t <= 10000; t += 1000) if (l.allow(t)) ok++; return ok; })()",
+              "expect": 11
+            }
+          ],
+          "expectedAnswer": "On each allow(now): if last is null set last = now. Add (now - last) * refillPerMs to tokens, clamp to capacity, set last = now. If tokens >= 1, subtract 1 and return true; else return false. Capacity bounds bursts, refillPerMs bounds the sustained rate. The injected clock removes hidden time dependencies and makes the limiter unit-testable; in production you pass Date.now().",
+          "rubric": [
+            "Bucket starts full and bursts up to capacity.",
+            "Refill is proportional to elapsed time and clamped at capacity.",
+            "Tokens never go negative; false consumes nothing.",
+            "Uses the injected clock rather than Date.now().",
+            "Explains burst-vs-sustained-rate tradeoff."
+          ],
+          "redFlags": [
+            "Resetting the bucket to full on a fixed interval (that is a fixed-window limiter, not token bucket).",
+            "Letting tokens grow unbounded while idle.",
+            "Reading real time instead of the injected clock."
+          ]
+        },
+        {
+          "id": "consistent-hash-ring",
+          "type": "code_run",
+          "language": "javascript",
+          "prompt": "Implement a consistent hashing ring with virtual nodes so that removing a node only remaps the keys that lived on that node.",
+          "scenario": "You shard a cache across N servers. With naive `hash(key) % N`, changing N reshuffles almost every key and stampedes the backing store. Consistent hashing must keep most keys on the same node when the cluster grows or shrinks.",
+          "requirements": [
+            "Export `createRing(virtualNodesPerNode)`.",
+            "`addNode(name)` and `removeNode(name)` mutate the ring.",
+            "`getNode(key)` returns the name of the owning node, deterministically.",
+            "The same key always maps to the same node given the same membership.",
+            "Removing a node must only move keys that were assigned to that node — keys on other nodes must not move.",
+            "Use virtual nodes (replicas) so load is spread reasonably."
+          ],
+          "constraints": [
+            "You may implement any stable string hash (e.g. a simple FNV/DJB2 variant) inside the ring.",
+            "getNode on an empty ring may return null."
+          ],
+          "starterCode": "function createRing(virtualNodesPerNode = 50) {\n  // ring: sorted array of { hash, node }; getNode walks clockwise to the\n  // first virtual node with hash >= hash(key), wrapping around.\n  const ring = [];\n\n  function hash(str) {\n    let h = 2166136261;\n    for (let i = 0; i < str.length; i++) {\n      h ^= str.charCodeAt(i);\n      h = Math.imul(h, 16777619);\n    }\n    return h >>> 0;\n  }\n\n  return {\n    addNode(name) {\n      // TODO: add virtualNodesPerNode points for `name`, keep ring sorted.\n    },\n    removeNode(name) {\n      // TODO: remove all virtual points belonging to `name`.\n    },\n    getNode(key) {\n      // TODO: clockwise lookup; return owning node name or null.\n    }\n  };\n}",
+          "tests": [
+            {
+              "name": "empty ring returns null",
+              "call": "(() => { const r = createRing(10); return r.getNode('k'); })()",
+              "expect": null
+            },
+            {
+              "name": "lookups are deterministic and in-membership",
+              "call": "(() => { const r = createRing(20); ['A','B','C'].forEach(n => r.addNode(n)); const a = r.getNode('user-42'); const b = r.getNode('user-42'); return a === b && ['A','B','C'].includes(a); })()",
+              "expect": true
+            },
+            {
+              "name": "removing a node only remaps that node's keys",
+              "call": "(() => { const r = createRing(100); ['A','B','C','D'].forEach(n => r.addNode(n)); const keys = Array.from({length: 500}, (_, i) => 'key-' + i); const before = keys.map(k => r.getNode(k)); r.removeNode('C'); const after = keys.map(k => r.getNode(k)); let movedNotOnC = 0; before.forEach((n, i) => { if (n !== after[i] && n !== 'C') movedNotOnC++; }); return movedNotOnC; })()",
+              "expect": 0
+            },
+            {
+              "name": "adding a node steals only some keys, not all",
+              "call": "(() => { const r = createRing(100); ['A','B','C'].forEach(n => r.addNode(n)); const keys = Array.from({length: 600}, (_, i) => 'k' + i); const before = keys.map(k => r.getNode(k)); r.addNode('D'); const after = keys.map(k => r.getNode(k)); const moved = before.filter((n, i) => n !== after[i]).length; return moved > 0 && moved < 400; })()",
+              "expect": true
+            }
+          ],
+          "expectedAnswer": "Maintain a sorted array of { hash, node } for each virtual node (name#i). addNode pushes virtualNodesPerNode points and re-sorts (or inserts in order). getNode hashes the key and binary-searches/walks to the first ring point with hash >= keyHash, wrapping to index 0 if past the end, and returns that point's node. removeNode filters out that node's points. Because ownership is defined by the next clockwise point, deleting one node's points only hands its arc to the next node; other arcs are untouched, so unrelated keys don't move. Virtual nodes smooth out distribution.",
+          "rubric": [
+            "Uses a sorted ring with clockwise (wrap-around) lookup.",
+            "getNode is deterministic for fixed membership.",
+            "Removing a node moves only that node's keys (the core invariant).",
+            "Adding a node steals a bounded subset, not everything.",
+            "Uses virtual nodes for balance and explains why % N is worse."
+          ],
+          "redFlags": [
+            "Falling back to hash(key) % nodes.length anywhere.",
+            "Re-hashing every key on membership change.",
+            "Non-deterministic ordering (e.g. iterating a Set for ownership)."
+          ]
+        },
+        {
+          "id": "exponential-backoff-schedule",
+          "type": "code_run",
+          "language": "javascript",
+          "prompt": "Compute an exponential backoff schedule with a cap. This drives client retries against a flaky dependency.",
+          "scenario": "A client retries failed calls. Constant retry intervals synchronize clients into a thundering herd; you need exponential growth with a ceiling. Jitter is intentionally excluded here so the schedule is deterministic and testable — you would add it in production.",
+          "requirements": [
+            "Export `backoffSchedule({ attempts, baseMs, factor, capMs })`.",
+            "Return an array of length `attempts`.",
+            "Delay for attempt i (0-indexed) is `baseMs * factor**i`, clamped to at most `capMs`.",
+            "All delays are integers (floor).",
+            "`attempts` may be 0 (return an empty array)."
+          ],
+          "constraints": [
+            "Pure function: no randomness, no clock, no side effects.",
+            "Do not mutate the input object."
+          ],
+          "starterCode": "function backoffSchedule({ attempts, baseMs, factor, capMs }) {\n  // TODO: return [base, base*factor, base*factor^2, ...] capped at capMs.\n}",
+          "tests": [
+            {
+              "name": "doubles and caps",
+              "call": "backoffSchedule({ attempts: 6, baseMs: 100, factor: 2, capMs: 1000 })",
+              "expect": [100, 200, 400, 800, 1000, 1000]
+            },
+            {
+              "name": "zero attempts yields empty schedule",
+              "call": "backoffSchedule({ attempts: 0, baseMs: 100, factor: 2, capMs: 1000 })",
+              "expect": []
+            },
+            {
+              "name": "floors fractional growth",
+              "call": "backoffSchedule({ attempts: 4, baseMs: 50, factor: 1.5, capMs: 100000 })",
+              "expect": [50, 75, 112, 168]
+            },
+            {
+              "name": "cap dominates with a large factor",
+              "call": "backoffSchedule({ attempts: 3, baseMs: 1000, factor: 10, capMs: 2000 })",
+              "expect": [1000, 2000, 2000]
+            }
+          ],
+          "expectedAnswer": "Build an array of length attempts where delay[i] = Math.floor(Math.min(baseMs * factor ** i, capMs)). Return [] when attempts is 0. The cap bounds worst-case wait and the exponential growth backs off pressure on the failing dependency; in production add full or equal jitter (e.g. random between 0 and the computed delay) to de-synchronize clients and avoid a retry stampede.",
+          "rubric": [
+            "Correct exponential growth per attempt.",
+            "Clamps each delay to capMs.",
+            "Floors to integers and handles attempts = 0.",
+            "Pure and non-mutating.",
+            "Notes that real clients add jitter to avoid thundering herd."
+          ],
+          "redFlags": [
+            "Linear or constant backoff.",
+            "Forgetting the cap, allowing unbounded waits.",
+            "Adding nondeterministic jitter inside a function specified as pure."
+          ]
+        }
+      ]
     }
   ]
 }
