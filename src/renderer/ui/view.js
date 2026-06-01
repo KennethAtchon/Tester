@@ -12,6 +12,7 @@ import {
   getAnsweredCount
 } from "../state/store.js";
 import { renderCodeControl } from "./runner.js";
+import { mountCodeEditors } from "./codeEditor.js";
 
 const elements = {
   librarySummary: document.querySelector("#librarySummary"),
@@ -131,6 +132,9 @@ function renderWorkspace(test) {
   test.questions.forEach((question, index) => {
     elements.testForm.append(renderQuestion(test, question, index));
   });
+
+  // Textareas are now attached, so CM5 can take over the code answers.
+  mountCodeEditors(elements.testForm, test);
 }
 
 function renderQuestion(test, question, index) {
@@ -248,6 +252,12 @@ function renderAnswerControl(test, question) {
   textarea.dataset.questionId = question.id;
   textarea.placeholder = question.placeholder || "Write your answer";
   textarea.className = "long-answer";
+  // Code questions (those declaring a language) get the CM5 editor; prose
+  // long-answers stay a plain textarea.
+  if (question.language) {
+    textarea.dataset.codeEditor = question.language;
+    textarea.spellcheck = false;
+  }
   return textarea;
 }
 

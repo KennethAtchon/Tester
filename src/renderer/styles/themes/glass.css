@@ -516,3 +516,19 @@ input[type="text"] { min-height: 46px; padding: 0 16px; font-size: 15px; }
   .sidebar { position: relative; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
   .test-list { max-height: 280px; }
 }
+
+/* --- Code editor syntax palette (glass / indigo) --- */
+.CodeMirror .cm-keyword  { color: #818cf8; font-weight: 600; }
+.CodeMirror .cm-def      { color: #e8e4ff; font-weight: 600; }
+.CodeMirror .cm-variable-2 { color: #c4b5fd; }
+.CodeMirror .cm-property { color: #e8e4ff; }
+.CodeMirror .cm-string,
+.CodeMirror .cm-string-2 { color: #a5b4fc; }
+.CodeMirror .cm-number   { color: #f0abfc; }
+.CodeMirror .cm-atom     { color: #f0abfc; }
+.CodeMirror .cm-comment  { color: #5a5878; font-style: italic; }
+.CodeMirror .cm-operator,
+.CodeMirror .cm-punctuation { color: #9896c8; }
+.CodeMirror .cm-meta     { color: #5a5878; }
+.CodeMirror .cm-tag      { color: #818cf8; }
+.CodeMirror .cm-attribute { color: #a5b4fc; }

@@ -195,3 +195,87 @@
   font-size: 10px;
   margin-top: 1px;
 }
+
+/* CodeMirror 5 code-answer editors — theme-agnostic, driven by the shared
+   design tokens (--ink/--paper/--surface/--line/--accent/--muted) so the
+   editor blends into whichever design stylesheet is active. */
+.CodeMirror {
+  height: auto;
+  min-height: 160px;
+  border: 1px solid var(--line, #d8d8d8);
+  border-radius: 8px;
+  background: var(--surface, var(--paper, #fff));
+  color: var(--ink, #1a1a1a);
+  font-family: var(--code-font, ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.CodeMirror-focused {
+  border-color: var(--accent, #4a6cf7);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #4a6cf7) 22%, transparent);
+}
+.CodeMirror-gutters {
+  background: transparent;
+  border-right: 1px solid var(--line, #e3e3e3);
+}
+.CodeMirror-linenumber { color: var(--faint, #b0b0b0); }
+.CodeMirror-cursor { border-left: 2px solid var(--accent, var(--ink, #000)); }
+.CodeMirror-selected { background: color-mix(in srgb, var(--accent, #4a6cf7) 18%, transparent); }
+.CodeMirror-matchingbracket { color: var(--accent, #4a6cf7) !important; font-weight: 700; }
+
+/* Syntax tokens */
+.cm-keyword  { color: var(--accent, #8250df); font-weight: 600; }
+.cm-def      { color: var(--ink, #1a1a1a); font-weight: 600; }
+.cm-variable-2,
+.cm-property { color: var(--ink, #1a1a1a); }
+.cm-string   { color: var(--muted, #0a7d4f); }
+.cm-number   { color: var(--muted, #b0680c); }
+.cm-comment  { color: var(--faint, #999); font-style: italic; }
+.cm-operator,
+.cm-punctuation { color: var(--muted, #555); }
+.cm-meta     { color: var(--faint, #888); }
+
+/* Language selector above each code editor */
+.code-lang-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.code-lang-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--faint, #999);
+}
+.code-lang-select {
+  font-family: var(--body-font, inherit);
+  font-size: 12.5px;
+  color: var(--ink, #1a1a1a);
+  background: var(--surface, var(--paper, #fff));
+  border: 1px solid var(--line, #d8d8d8);
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+.code-lang-select:focus-visible {
+  outline: none;
+  border-color: var(--accent, #4a6cf7);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #4a6cf7) 22%, transparent);
+}
+
+/* Autocomplete popup — theme-token driven so it matches every design */
+.CodeMirror-hints {
+  font-family: var(--code-font, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+  font-size: 12.5px;
+  background: var(--surface, var(--paper, #fff));
+  border: 1px solid var(--line, #d8d8d8);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  z-index: 100;
+}
+.CodeMirror-hint { color: var(--ink, #1a1a1a); padding: 3px 10px; }
+li.CodeMirror-hint-active {
+  background: var(--accent, #4a6cf7);
+  color: var(--paper, #fff);
+}

@@ -14,6 +14,9 @@ export function renderCodeControl(test, question, onAnswerChange) {
   editor.spellcheck = false;
   editor.value = getAnswer(test.id, question.id) ?? question.starterCode ?? "";
   editor.dataset.questionId = question.id;
+  // Tag for the CM5 upgrade applied after render; the sandbox runs JS, so
+  // default to javascript when the question omits an explicit language.
+  editor.dataset.codeEditor = question.language || "javascript";
   editor.placeholder = "Write your solution here";
   // Editor input is captured by the form-level delegated handler in ui.js, so
   // the editor itself only needs to expose its value to the run button below.

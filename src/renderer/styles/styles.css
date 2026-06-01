@@ -906,3 +906,19 @@ input[type="text"] {
     margin-left: 0;
   }
 }
+
+/* --- Code editor syntax palette (classic) --- */
+.CodeMirror .cm-keyword  { color: #0b6f73; font-weight: 600; }
+.CodeMirror .cm-def      { color: #171310; font-weight: 600; }
+.CodeMirror .cm-variable-2 { color: #0b6f73; }
+.CodeMirror .cm-property { color: #171310; }
+.CodeMirror .cm-string,
+.CodeMirror .cm-string-2 { color: #9d542d; }
+.CodeMirror .cm-number   { color: #a33b2d; }
+.CodeMirror .cm-atom     { color: #a33b2d; }
+.CodeMirror .cm-comment  { color: #93887e; font-style: italic; }
+.CodeMirror .cm-operator,
+.CodeMirror .cm-punctuation { color: #6c6259; }
+.CodeMirror .cm-meta     { color: #93887e; }
+.CodeMirror .cm-tag      { color: #0b6f73; }
+.CodeMirror .cm-attribute { color: #9d542d; }

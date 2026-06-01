@@ -482,3 +482,19 @@ input[type="text"] { min-height: 48px; padding: 0; font-size: 16px; }
   .test-list { max-height: 280px; }
   .workspace { padding: 30px; }
 }
+
+/* --- Code editor syntax palette (zen / warm paper) --- */
+.CodeMirror .cm-keyword  { color: #8b1a1a; font-weight: 600; }
+.CodeMirror .cm-def      { color: #1a1210; font-weight: 600; }
+.CodeMirror .cm-variable-2 { color: #6b4a2d; }
+.CodeMirror .cm-property { color: #1a1210; }
+.CodeMirror .cm-string,
+.CodeMirror .cm-string-2 { color: #5b7a4f; }
+.CodeMirror .cm-number   { color: #9d6b2d; }
+.CodeMirror .cm-atom     { color: #9d6b2d; }
+.CodeMirror .cm-comment  { color: #b0a8a2; font-style: italic; }
+.CodeMirror .cm-operator,
+.CodeMirror .cm-punctuation { color: #7a6e68; }
+.CodeMirror .cm-meta     { color: #b0a8a2; }
+.CodeMirror .cm-tag      { color: #8b1a1a; }
+.CodeMirror .cm-attribute { color: #5b7a4f; }

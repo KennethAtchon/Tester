@@ -475,3 +475,19 @@ input[type="text"] { min-height: 48px; padding: 0; font-size: 16px; }
   .test-list { max-height: 280px; }
   .workspace { padding: 28px; }
 }
+
+/* --- Code editor syntax palette (luxury / gold on black) --- */
+.CodeMirror .cm-keyword  { color: #c9a55a; font-weight: 600; }
+.CodeMirror .cm-def      { color: #f0e8d8; font-weight: 600; }
+.CodeMirror .cm-variable-2 { color: #e3c98a; }
+.CodeMirror .cm-property { color: #f0e8d8; }
+.CodeMirror .cm-string,
+.CodeMirror .cm-string-2 { color: #d9b886; }
+.CodeMirror .cm-number   { color: #b98b4a; }
+.CodeMirror .cm-atom     { color: #b98b4a; }
+.CodeMirror .cm-comment  { color: #6e5e50; font-style: italic; }
+.CodeMirror .cm-operator,
+.CodeMirror .cm-punctuation { color: #a8998a; }
+.CodeMirror .cm-meta     { color: #6e5e50; }
+.CodeMirror .cm-tag      { color: #c9a55a; }
+.CodeMirror .cm-attribute { color: #d9b886; }

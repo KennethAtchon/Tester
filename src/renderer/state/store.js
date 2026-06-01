@@ -11,7 +11,10 @@ const state = {
   selectedTestId: "",
   answers: {},
   // Last code-run result per `${testId}:${questionId}`, for inline display and export.
-  runResults: {}
+  runResults: {},
+  // Chosen editor language per `${testId}:${questionId}`; overrides the question
+  // default so a picked syntax mode survives navigation. Highlighting only.
+  editorLangs: {}
 };
 
 export function getState() {
@@ -26,6 +29,7 @@ export function loadLibrary(candidate, sourcePath) {
   state.selectedTestId = library.tests[0]?.id ?? "";
   state.answers = {};
   state.runResults = {};
+  state.editorLangs = {};
 
   for (const test of library.tests) {
     state.answers[test.id] = {};
@@ -80,6 +84,14 @@ export function getRunResult(testId, questionId) {
 
 export function setRunResult(testId, questionId, result) {
   state.runResults[`${testId}:${questionId}`] = result;
+}
+
+export function getEditorLang(testId, questionId, fallback) {
+  return state.editorLangs[`${testId}:${questionId}`] ?? fallback;
+}
+
+export function setEditorLang(testId, questionId, language) {
+  state.editorLangs[`${testId}:${questionId}`] = language;
 }
 
 export function getAnsweredCount(test) {
