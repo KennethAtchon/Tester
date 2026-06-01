@@ -2,7 +2,7 @@
 // business logic — it reads derived state and calls back into actions wired by
 // app.js for navigation and example loading.
 
-import { formatExampleName } from "../lib/util.js";
+import { formatExampleName, codeAnswerKey } from "../lib/util.js";
 import {
   getState,
   getCurrentTest,
@@ -185,12 +185,16 @@ function renderQuestionDetails(question) {
 }
 
 function renderQuestionDetail(question, detail) {
-  const section = document.createElement("section");
+  // Each detail is a native collapsible block: the label is the clickable
+  // summary, the value its body. Open by default so nothing is hidden on load.
+  const section = document.createElement("details");
   section.className = `question-detail ${detail.kind === "code" ? "code-detail" : ""}`;
+  section.open = true;
 
-  const label = document.createElement("div");
+  const label = document.createElement("summary");
   label.className = "question-detail-label";
   label.textContent = detail.label;
+  section.append(label);
 
   if (detail.kind === "list" && Array.isArray(detail.value)) {
     const list = document.createElement("ul");
@@ -202,7 +206,7 @@ function renderQuestionDetail(question, detail) {
       list.append(listItem);
     }
 
-    section.append(label, list);
+    section.append(list);
     return section;
   }
 
@@ -212,13 +216,13 @@ function renderQuestionDetail(question, detail) {
     code.className = `language-${question.language}`;
     code.textContent = Array.isArray(detail.value) ? detail.value.join("\n") : detail.value;
     pre.append(code);
-    section.append(label, pre);
+    section.append(pre);
     return section;
   }
 
   const text = document.createElement("p");
   text.textContent = Array.isArray(detail.value) ? detail.value.join("\n") : detail.value;
-  section.append(label, text);
+  section.append(text);
   return section;
 }
 
@@ -247,18 +251,63 @@ function renderAnswerControl(test, question) {
     return input;
   }
 
-  const textarea = document.createElement("textarea");
-  textarea.value = answer;
-  textarea.dataset.questionId = question.id;
-  textarea.placeholder = question.placeholder || "Write your answer";
-  textarea.className = "long-answer";
-  // Code questions (those declaring a language) get the CM5 editor; prose
-  // long-answers stay a plain textarea.
-  if (question.language) {
-    textarea.dataset.codeEditor = question.language;
-    textarea.spellcheck = false;
+  return renderLongAnswer(test, question);
+}
+
+// Long-answer questions render one of three surfaces based on answerMode:
+// a prose textarea, a code editor, or both stacked together.
+function renderLongAnswer(test, question) {
+  if (question.answerMode === "code") {
+    return buildCodeTextarea(test, question, question.id, question.placeholder || "Write your code");
   }
+
+  if (question.answerMode === "both") {
+    const container = document.createElement("div");
+    container.className = "answer-stack";
+    container.append(
+      labelled("Explanation", buildProseTextarea(test, question, question.id, question.placeholder || "Explain your answer")),
+      labelled("Code", buildCodeTextarea(test, question, codeAnswerKey(question.id), "Write your code"))
+    );
+    return container;
+  }
+
+  // Default: plain prose textarea.
+  return buildProseTextarea(test, question, question.id, question.placeholder || "Write your answer");
+}
+
+function buildProseTextarea(test, question, answerId, placeholder) {
+  const textarea = document.createElement("textarea");
+  textarea.value = getAnswer(test.id, answerId) ?? "";
+  textarea.dataset.questionId = answerId;
+  textarea.placeholder = placeholder;
+  textarea.className = "long-answer";
   return textarea;
+}
+
+// A textarea tagged for the CM5 upgrade (mountCodeEditors picks up
+// data-code-editor after the DOM is attached). Seeds starter code when empty.
+function buildCodeTextarea(test, question, answerId, placeholder) {
+  const textarea = document.createElement("textarea");
+  textarea.value = getAnswer(test.id, answerId) ?? question.starterCode ?? "";
+  textarea.dataset.questionId = answerId;
+  textarea.dataset.codeEditor = question.language || "javascript";
+  // Flags the editor for a free-form Run button (executes as JS, shows console
+  // output). code_run editors are excluded — they have their own test runner.
+  textarea.dataset.run = "free";
+  textarea.placeholder = placeholder;
+  textarea.className = "long-answer code-editor";
+  textarea.spellcheck = false;
+  return textarea;
+}
+
+function labelled(text, control) {
+  const wrap = document.createElement("div");
+  wrap.className = "answer-field";
+  const label = document.createElement("span");
+  label.className = "answer-field-label";
+  label.textContent = text;
+  wrap.append(label, control);
+  return wrap;
 }
 
 function renderChoiceList(test, question, inputType, isChecked) {

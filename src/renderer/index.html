@@ -9,6 +9,10 @@
       const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
       document.documentElement.dataset.theme = savedTheme || (prefersDark ? "dark" : "light");
     </script>
+    <!-- CodeMirror core CSS first, so the active design stylesheet's
+         .CodeMirror .cm-* syntax rules override CM's built-in cm-s-default. -->
+    <link rel="stylesheet" href="./vendor/codemirror/codemirror.css" />
+    <link rel="stylesheet" href="./vendor/codemirror/show-hint.css" />
     <link id="design-theme-link" rel="stylesheet" href="./styles/styles.css" />
     <script>
       (function () {
@@ -26,9 +30,7 @@
       })();
     </script>
     <link rel="stylesheet" href="./styles/switcher.css" />
-    <!-- CodeMirror 5 (vendored, no build step) — exposes window.CodeMirror for ui/codeEditor.js -->
-    <link rel="stylesheet" href="./vendor/codemirror/codemirror.css" />
-    <link rel="stylesheet" href="./vendor/codemirror/show-hint.css" />
+    <!-- CodeMirror 5 JS (vendored, no build step) — exposes window.CodeMirror for ui/codeEditor.js -->
     <script src="./vendor/codemirror/codemirror.js"></script>
     <script src="./vendor/codemirror/show-hint.js"></script>
     <script src="./vendor/codemirror/closebrackets.js"></script>

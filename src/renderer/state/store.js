@@ -2,7 +2,7 @@
 // Keeping state changes here (instead of scattered across the UI) means the UI
 // layer only reads derived values and never reaches into raw state shape.
 
-import { isAnswered } from "../lib/util.js";
+import { isAnswered, codeAnswerKey } from "../lib/util.js";
 import { normalizeLibrary } from "../domain/normalize.js";
 
 const state = {
@@ -35,9 +35,16 @@ export function loadLibrary(candidate, sourcePath) {
     state.answers[test.id] = {};
 
     // Seed code questions with their starter code so candidates edit, not retype.
+    // The code answer lives under the bare id for code-only questions and under
+    // the derived code key for "both" questions.
     for (const question of test.questions) {
-      if (question.type === "code_run" && question.starterCode) {
+      if (!question.starterCode) {
+        continue;
+      }
+      if (question.type === "code_run" || question.answerMode === "code") {
         state.answers[test.id][question.id] = question.starterCode;
+      } else if (question.answerMode === "both") {
+        state.answers[test.id][codeAnswerKey(question.id)] = question.starterCode;
       }
     }
   }
@@ -96,5 +103,12 @@ export function setEditorLang(testId, questionId, language) {
 
 export function getAnsweredCount(test) {
   const answers = state.answers[test.id] ?? {};
-  return test.questions.filter((question) => isAnswered(answers[question.id])).length;
+  return test.questions.filter((question) => {
+    // "both" questions count as answered if either the prose or the code half
+    // has content.
+    if (question.answerMode === "both") {
+      return isAnswered(answers[question.id]) || isAnswered(answers[codeAnswerKey(question.id)]);
+    }
+    return isAnswered(answers[question.id]);
+  }).length;
 }

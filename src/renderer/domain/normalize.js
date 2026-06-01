@@ -86,6 +86,7 @@ function normalizeQuestion(question, index) {
   }
 
   const options = getQuestionOptions(question, type);
+  const { answerMode, language } = getAnswerSurface(question, type);
 
   return {
     id: stringify(question.id) || `q${index + 1}`,
@@ -97,9 +98,46 @@ function normalizeQuestion(question, index) {
     grading: getQuestionGrading(question),
     runnerTests: type === "code_run" ? getRunnerTests(question) : [],
     starterCode: stringify(question.starterCode || question.starter_code),
-    language: stringify(question.language) || "text",
+    answerMode,
+    language,
     placeholder: stringify(question.placeholder)
   };
+}
+
+const ANSWER_MODES = ["text", "code", "both"];
+// Languages that signal "no code answer" — used when a question sets language
+// only for context/highlighting of a prose answer.
+const NON_CODE_LANGUAGES = new Set(["", "text", "plain", "none", "prose"]);
+
+// Decides which answer controls a question shows: a prose textarea ("text"), a
+// code editor ("code"), or both ("both"). Explicit answerMode wins; otherwise a
+// real programming language on a long_answer implies the candidate writes code
+// alongside an explanation ("both"). code_run is always code; choice/short types
+// keep "text" (the field is ignored for them but stays defined).
+function getAnswerSurface(question, type) {
+  const rawLanguage = stringify(question.language);
+  const isCodeLanguage = !NON_CODE_LANGUAGES.has(rawLanguage.toLowerCase());
+
+  const explicit = stringify(question.answerMode || question.answer_mode).toLowerCase();
+  const explicitMode = ANSWER_MODES.includes(explicit) ? explicit : null;
+
+  let answerMode;
+  if (type === "code_run") {
+    answerMode = "code";
+  } else if (type !== "long_answer") {
+    answerMode = "text";
+  } else if (explicitMode) {
+    answerMode = explicitMode;
+  } else {
+    answerMode = isCodeLanguage ? "both" : "text";
+  }
+
+  // A code-bearing answer needs a real language for the editor; fall back to
+  // javascript when the question only declared a prose language (or none).
+  const needsCode = answerMode === "code" || answerMode === "both";
+  const language = isCodeLanguage ? rawLanguage : needsCode ? "javascript" : rawLanguage || "text";
+
+  return { answerMode, language };
 }
 
 function normalizeQuestionType(type) {

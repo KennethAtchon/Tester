@@ -1,10 +1,10 @@
 // Builds the Markdown review request from a test, its answers, and any code-run
 // results. Pure: takes everything as arguments so it is trivially testable.
 
-import { stringify, isAnswered } from "../lib/util.js";
+import { stringify, isAnswered, codeAnswerKey } from "../lib/util.js";
 
 export function buildMarkdown({ library, test, answers, sourcePath, runResults }) {
-  const answeredCount = test.questions.filter((question) => isAnswered(answers[question.id])).length;
+  const answeredCount = test.questions.filter((question) => isQuestionAnswered(question, answers)).length;
   const now = new Date().toLocaleString();
 
   const lines = [
@@ -38,12 +38,30 @@ export function buildMarkdown({ library, test, answers, sourcePath, runResults }
 
     if (question.type === "code_run") {
       appendCodeAnswer(lines, question, answers[question.id], runResults[question.id]);
+    } else if (question.answerMode === "code") {
+      appendCodeBlock(lines, "Submitted code", question.language, answers[question.id]);
+    } else if (question.answerMode === "both") {
+      lines.push("**Explanation:**", "", formatAnswer(answers[question.id]), "");
+      appendCodeBlock(lines, "Submitted code", question.language, answers[codeAnswerKey(question.id)]);
     } else {
       lines.push("**Answer:**", "", formatAnswer(answers[question.id]), "");
     }
   });
 
   return lines.join("\n");
+}
+
+// True when a question has any answer content, accounting for "both" questions
+// that store prose and code under separate keys.
+function isQuestionAnswered(question, answers) {
+  if (question.answerMode === "both") {
+    return isAnswered(answers[question.id]) || isAnswered(answers[codeAnswerKey(question.id)]);
+  }
+  return isAnswered(answers[question.id]);
+}
+
+function appendCodeBlock(lines, label, language, code) {
+  lines.push(`**${label}:**`, "", `\`\`\`${language || "javascript"}`, stringify(code) || "// (no code submitted)", "```", "");
 }
 
 function appendCodeAnswer(lines, question, answer, runResult) {

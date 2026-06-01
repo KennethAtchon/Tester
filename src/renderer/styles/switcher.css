@@ -275,7 +275,41 @@
   z-index: 100;
 }
 .CodeMirror-hint { color: var(--ink, #1a1a1a); padding: 3px 10px; }
+/* Active row: accent-tinted highlight, but keep --ink text so it stays legible
+   on every theme (some themes' --paper is near-transparent). */
 li.CodeMirror-hint-active {
-  background: var(--accent, #4a6cf7);
-  color: var(--paper, #fff);
+  background: color-mix(in srgb, var(--accent, #4a6cf7) 26%, transparent);
+  color: var(--ink, #1a1a1a);
+}
+
+/* "Both" answers: stacked prose + code fields with small captions */
+.answer-stack { display: flex; flex-direction: column; gap: 14px; }
+.answer-field { display: flex; flex-direction: column; gap: 5px; }
+.answer-field-label {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--faint, #999);
+}
+
+/* Collapsible question-detail blocks (Scenario, Task, etc.) */
+.question-detail > summary.question-detail-label {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  user-select: none;
+}
+.question-detail > summary.question-detail-label::-webkit-details-marker { display: none; }
+.question-detail > summary.question-detail-label::before {
+  content: "\25BE"; /* ▾ */
+  font-size: 0.72em;
+  line-height: 1;
+  opacity: 0.6;
+  transition: transform 0.15s ease;
+}
+.question-detail:not([open]) > summary.question-detail-label::before {
+  transform: rotate(-90deg);
 }

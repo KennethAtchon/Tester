@@ -152,7 +152,130 @@ export function mountCodeEditors(root, test) {
 
     // Drop the selector just above the editor CM built in place of the textarea.
     editor.getWrapperElement().before(selector);
+
+    // Free-form Run for non-test code answers: executes with the real local
+    // interpreter for the currently selected language.
+    if (textarea.dataset.run === "free") {
+      attachFreeRunner(editor, () => lang);
+    }
   });
+}
+
+// Languages this app knows how to execute locally (must match runExec.js).
+// Others get a disabled Run button explaining they aren't runnable.
+const RUNNABLE = new Set(["javascript", "typescript", "python", "ruby", "php", "shell", "go", "c", "cpp"]);
+
+// Adds a Run button + results panel below the editor. Reuses the code_run CSS
+// classes so it inherits each theme's styling. getLang reads the live language
+// so switching the selector changes what interpreter runs.
+function attachFreeRunner(editor, getLang) {
+  const toolbar = document.createElement("div");
+  toolbar.className = "code-runner-toolbar";
+
+  const runButton = document.createElement("button");
+  runButton.type = "button";
+  runButton.className = "run-button";
+  runButton.textContent = "Run";
+
+  const summary = document.createElement("span");
+  summary.className = "run-summary";
+
+  toolbar.append(runButton, summary);
+
+  const results = document.createElement("div");
+  results.className = "run-results";
+
+  const wrapper = editor.getWrapperElement();
+  wrapper.after(toolbar);
+  toolbar.after(results);
+
+  const syncRunnable = () => {
+    const runnable = RUNNABLE.has(getLang());
+    runButton.disabled = !runnable;
+    if (!runnable) {
+      summary.textContent = `${getLang()} isn't runnable here`;
+      summary.className = "run-summary";
+    } else if (!results.hasChildNodes()) {
+      summary.textContent = "";
+      summary.className = "run-summary";
+    }
+  };
+  // The selector change handler re-runs mount-time closures via getLang, but it
+  // doesn't call us back, so refresh the button state whenever Run is hovered.
+  toolbar.addEventListener("pointerenter", syncRunnable);
+  syncRunnable();
+
+  runButton.addEventListener("click", async () => {
+    const language = getLang();
+    runButton.disabled = true;
+    runButton.textContent = "Running…";
+    summary.textContent = "";
+    results.replaceChildren();
+
+    try {
+      const result = await window.testFiles.execCode({ language, code: editor.getValue() });
+      renderExecResult(results, summary, result);
+    } catch (error) {
+      renderExecResult(results, summary, { ok: false, stdout: "", stderr: error.message });
+    } finally {
+      runButton.disabled = false;
+      runButton.textContent = "Run";
+    }
+  });
+}
+
+function renderExecResult(container, summary, result) {
+  container.replaceChildren();
+
+  if (result.unsupported) {
+    summary.textContent = "Not runnable";
+    summary.className = "run-summary fail";
+    container.append(logBlock(result.stderr));
+    return;
+  }
+
+  if (result.missing) {
+    summary.textContent = "Interpreter missing";
+    summary.className = "run-summary fail";
+    container.append(logBlock(result.stderr, "error"));
+    return;
+  }
+
+  if (result.ok) {
+    summary.textContent = "Ran ✓";
+    summary.className = "run-summary pass";
+  } else {
+    const reason = result.timedOut ? "Timed out" : result.phase === "compile" ? "Compile error" : `Exited ${result.exitCode}`;
+    summary.textContent = reason;
+    summary.className = "run-summary fail";
+  }
+
+  const stdout = result.stdout || "";
+  const stderr = result.stderr || "";
+
+  if (stdout) {
+    container.append(logLabel("Output"), logBlock(stdout));
+  }
+  if (stderr) {
+    container.append(logLabel(result.ok ? "Stderr" : "Error"), logBlock(stderr, "error"));
+  }
+  if (!stdout && !stderr) {
+    container.append(logBlock("(no output)"));
+  }
+}
+
+function logLabel(text) {
+  const label = document.createElement("div");
+  label.className = "run-logs-label";
+  label.textContent = text;
+  return label;
+}
+
+function logBlock(text, variant) {
+  const pre = document.createElement("pre");
+  pre.className = variant === "error" ? "run-logs error" : "run-logs";
+  pre.textContent = text;
+  return pre;
 }
 
 function buildSelector(current, onChange) {

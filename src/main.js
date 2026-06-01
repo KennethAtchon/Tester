@@ -2,6 +2,7 @@ const { app, BrowserWindow, dialog, ipcMain } = require("electron");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { runCode } = require("./runner/runCode");
+const { runExec } = require("./runner/runExec");
 
 const appRoot = path.dirname(__dirname);
 const examplesPath = path.join(appRoot, "examples");
@@ -129,6 +130,8 @@ ipcMain.handle("tests:example", async (_event, fileName) => {
 });
 
 ipcMain.handle("code:run", async (_event, payload) => runCode(payload));
+
+ipcMain.handle("code:exec", async (_event, payload) => runExec(payload));
 
 ipcMain.handle("tests:saveMarkdown", async (_event, { defaultName, markdown }) => {
   const fileName = sanitizeMarkdownFileName(defaultName);

@@ -32,6 +32,13 @@ export function isAnswered(answer) {
   return Boolean(stringify(answer));
 }
 
+// Storage key for the code half of a "both" question. The prose half lives
+// under the bare question id; the code half lives under this derived key so a
+// single question can hold two distinct answers.
+export function codeAnswerKey(questionId) {
+  return `${questionId}__code`;
+}
+
 export function formatExampleName(fileName) {
   return fileName
     .replace(/\.json$/i, "")
