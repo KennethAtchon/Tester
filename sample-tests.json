@@ -1,6 +1,7 @@
 {
   "title": "Learning Checks",
   "description": "Starter tests you can replace with your own JSON file.",
+  "tent": "learning-checks",
   "tests": [
     {
       "id": "web-fundamentals",

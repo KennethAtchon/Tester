@@ -1,6 +1,7 @@
 {
   "title": "AWS CloudFront and Route 53 Deep Knowledge Test",
   "description": "A detailed gap-finding test for Amazon CloudFront, Route 53 DNS, and how they work together. Uses fine-grained question types: single_choice, multiple_choice, true_false, short_answer, and long_answer.",
+  "tent": "aws-cloudfront-route53-deep",
   "sources": [
     "https://aws.amazon.com/cloudfront/features/",
     "https://aws.amazon.com/route53/features/",

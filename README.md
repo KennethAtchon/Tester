@@ -70,9 +70,11 @@ Legacy aliases still work for older files:
 
 Fields the app reads:
 
-- `title`, `description`, and `tests` at the top level
+- `title`, `description`, `tent`, and `tests` at the top level
 - `id`, `title`, `topic`, `instructions`, and `questions` for each test
 - `id`, `prompt`, `type`, and `options` for each question
+
+Optional `tent` names a subfolder under `results/` for exported Markdown. Tests from the same library file share one tent, so related answer files stay grouped — for example, `performance-vs-scalability-answers.md` and `latency-vs-throughput-answers.md` both save to `results/system-design-tradeoffs/`.
 
 For backwards compatibility, older `choices` arrays are also read as `options`.
 
@@ -147,4 +149,4 @@ The main process adds a `code:run` IPC handler (`src/runner/runCode.js` → `src
 
 ## Export
 
-After answering questions, use **Save Markdown** to create a response file. Give that Markdown file to an AI and ask it to create a graded results Markdown file with explanations.
+After answering questions, use **Save Markdown** to create a response file. If the loaded library defines a `tent`, the file is written under `results/<tent>/`; otherwise it goes directly in `results/`. Give that Markdown file to an AI and ask it to create a graded results Markdown file with explanations.

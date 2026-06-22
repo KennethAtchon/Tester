@@ -1,6 +1,7 @@
 {
   "title": "Programming Learning Checks",
   "description": "A few short tests for checking software understanding.",
+  "tent": "programming-learning-checks",
   "tests": [
     {
       "id": "javascript-functions",

@@ -1,6 +1,7 @@
 {
   "title": "Rubric-Friendly Example",
   "description": "Extra fields like rubric and expectedAnswer are allowed. The app ignores them, but an AI reviewer can use them after export.",
+  "tent": "rubric-friendly-example",
   "tests": [
     {
       "id": "photosynthesis",

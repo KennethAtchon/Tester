@@ -133,11 +133,13 @@ ipcMain.handle("code:run", async (_event, payload) => runCode(payload));
 
 ipcMain.handle("code:exec", async (_event, payload) => runExec(payload));
 
-ipcMain.handle("tests:saveMarkdown", async (_event, { defaultName, markdown }) => {
+ipcMain.handle("tests:saveMarkdown", async (_event, { defaultName, tent, markdown }) => {
   const fileName = sanitizeMarkdownFileName(defaultName);
-  const filePath = path.join(resultsPath, fileName);
+  const safeTent = sanitizeTentDir(tent);
+  const dirPath = safeTent ? path.join(resultsPath, safeTent) : resultsPath;
+  const filePath = path.join(dirPath, fileName);
 
-  await fs.mkdir(resultsPath, { recursive: true });
+  await fs.mkdir(dirPath, { recursive: true });
   await fs.writeFile(filePath, markdown, "utf8");
 
   return {
@@ -152,4 +154,18 @@ function sanitizeMarkdownFileName(fileName) {
   const markdownName = safeName.toLowerCase().endsWith(".md") ? safeName : `${safeName}.md`;
 
   return markdownName.replace(/[^a-zA-Z0-9._-]/g, "-") || fallbackName;
+}
+
+function sanitizeTentDir(tent) {
+  if (typeof tent !== "string" || !tent.trim()) {
+    return "";
+  }
+
+  const safe = tent.trim().replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "");
+
+  if (!safe || safe === "." || safe === "..") {
+    return "";
+  }
+
+  return safe;
 }

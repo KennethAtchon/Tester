@@ -1,0 +1,165 @@
+{
+  "title": "System Design Trade-offs",
+  "description": "Concept checks on two pairs that interviewers love to conflate: performance vs scalability, and latency vs throughput.",
+  "tent": "system-design-tradeoffs",
+  "tests": [
+    {
+      "id": "performance-vs-scalability",
+      "title": "Performance vs Scalability",
+      "topic": "System Design Fundamentals",
+      "instructions": "Answer from memory. Be precise about which property a problem is really testing. Use concrete numbers or examples where they sharpen the point.",
+      "questions": [
+        {
+          "id": "define-both",
+          "type": "short_answer",
+          "prompt": "Define performance and scalability in one sentence each, so the difference is unambiguous.",
+          "expectedAnswer": "Performance is how fast the system handles a single unit of work (or its responsiveness under a fixed load); scalability is the system's ability to keep that performance acceptable as load, data, or users grow — usually by adding resources.",
+          "rubric": [
+            "Performance framed around a fixed/current load or single request",
+            "Scalability framed around growth in load/data/users",
+            "Mentions adding resources or capacity for scalability",
+            "Does not use one term to define the other"
+          ],
+          "commonMistakes": [
+            "Treating 'fast' and 'scalable' as synonyms",
+            "Defining scalability purely as 'handles more users' without the 'while keeping performance acceptable' clause"
+          ]
+        },
+        {
+          "id": "classic-distinction",
+          "type": "single_choice",
+          "prompt": "A widely-cited rule of thumb states: 'If your system is slow for a single user, you have a ___ problem. If it is fast for one user but slow under load, you have a ___ problem.'",
+          "expectedAnswer": "performance; scalability",
+          "options": [
+            "scalability; performance",
+            "performance; scalability",
+            "latency; throughput",
+            "throughput; latency"
+          ]
+        },
+        {
+          "id": "scale-can-hurt-perf",
+          "type": "true_false",
+          "prompt": "A change that improves scalability can make single-request performance worse.",
+          "expectedAnswer": "True",
+          "rubric": [
+            "Recognizes the answer is True",
+            "Bonus: gives an example (e.g. sharding/replication adds network hops or coordination overhead per request)"
+          ]
+        },
+        {
+          "id": "scaling-dimensions",
+          "type": "multiple_choice",
+          "prompt": "Which of the following are ways to scale a system? Select all that apply.",
+          "expectedAnswer": "Vertical scaling, horizontal scaling, and partitioning/sharding the data are all scaling strategies. Rewriting a hot function in C is a performance optimization, not scaling.",
+          "options": [
+            "Vertical scaling (bigger machine)",
+            "Horizontal scaling (more machines)",
+            "Sharding / partitioning the data",
+            "Rewriting a hot function in a faster language"
+          ]
+        },
+        {
+          "id": "diagnose-the-axis",
+          "type": "long_answer",
+          "prompt": "A checkout service responds in 80ms at 100 req/s. At 5,000 req/s, p99 climbs to 4s and error rates spike. Walk through how you'd determine whether this is a performance problem, a scalability problem, or both — and how the fix differs in each case.",
+          "rubric": [
+            "Notes that single-request 80ms baseline means raw performance is fine, so the symptom points at scalability under load",
+            "Proposes measuring resource saturation (CPU, memory, connection pools, DB locks, queue depth) to find the bottleneck",
+            "Distinguishes 'optimize the unit of work' (perf fix) from 'add capacity / remove contention / shard' (scalability fix)",
+            "Mentions that a perf optimization can also raise the ceiling, so the two are related but not identical"
+          ],
+          "weakSpots": [
+            "Jumping straight to 'add more servers' without identifying the bottleneck",
+            "Assuming a slow p99 always means slow code rather than contention/queueing"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "latency-vs-throughput",
+      "title": "Latency vs Throughput",
+      "topic": "System Design Fundamentals",
+      "instructions": "Be quantitative. Where a relationship exists (e.g. Little's Law), state it.",
+      "questions": [
+        {
+          "id": "define-both-lt",
+          "type": "short_answer",
+          "prompt": "Define latency and throughput, and give the typical unit for each.",
+          "expectedAnswer": "Latency is the time to complete one operation end-to-end (units: seconds/ms, often reported as p50/p99). Throughput is the number of operations completed per unit time (units: requests/sec, ops/sec, MB/s).",
+          "rubric": [
+            "Latency = time per single operation, time units",
+            "Throughput = work per unit time, rate units",
+            "Bonus: notes latency is often reported as a percentile distribution, not a mean"
+          ],
+          "commonMistakes": [
+            "Calling throughput 'speed' without specifying per-unit-time",
+            "Reporting latency only as an average instead of a percentile"
+          ]
+        },
+        {
+          "id": "not-reciprocal",
+          "type": "true_false",
+          "prompt": "Throughput is simply 1 / latency.",
+          "expectedAnswer": "False",
+          "rubric": [
+            "Recognizes the answer is False",
+            "Explains that concurrency/parallelism and batching decouple them: many in-flight requests give high throughput even with high per-request latency"
+          ]
+        },
+        {
+          "id": "littles-law",
+          "type": "short_answer",
+          "prompt": "State Little's Law and name what each term means.",
+          "expectedAnswer": "L = λ × W: the average number of items in the system (L, concurrency) equals the arrival/throughput rate (λ) times the average time each item spends in the system (W, latency).",
+          "rubric": [
+            "Gives L = λ × W (or equivalent concurrency = throughput × latency)",
+            "Correctly identifies L as items-in-system/concurrency",
+            "Identifies λ as throughput/arrival rate and W as latency/residence time"
+          ]
+        },
+        {
+          "id": "batching-tradeoff",
+          "type": "long_answer",
+          "prompt": "Adding batching to a write pipeline raised throughput from 10k to 60k writes/sec but raised p99 latency from 5ms to 90ms. Explain the mechanism, and describe a scenario where this trade is good and one where it is bad.",
+          "rubric": [
+            "Explains batching amortizes fixed per-op cost (syscalls, round trips, fsync) across many items, raising throughput",
+            "Explains items now wait to fill a batch / flush interval, raising per-item latency",
+            "Good case: bulk/async ingestion, analytics, logging where end-to-end latency is not user-facing",
+            "Bad case: interactive/synchronous request path where users feel the added wait"
+          ],
+          "weakSpots": [
+            "Claiming batching is strictly better without naming the latency cost",
+            "Not tying the latency increase to queueing/flush-interval delay"
+          ]
+        },
+        {
+          "id": "optimize-target",
+          "type": "single_choice",
+          "prompt": "A video-encoding farm processes a fixed backlog of files overnight; no one watches it run. Which metric should you optimize?",
+          "expectedAnswer": "Throughput — total jobs finished per hour matters; per-file latency is irrelevant since nothing is waiting on an individual result.",
+          "options": [
+            "Latency — each file must finish as fast as possible",
+            "Throughput — maximize files completed per hour",
+            "Tail latency (p99) of a single file",
+            "Neither matters for batch work"
+          ]
+        },
+        {
+          "id": "tail-latency",
+          "type": "long_answer",
+          "prompt": "Why can a service with excellent average latency still deliver a poor user experience, and why does tail latency get worse as a request fans out to many backends?",
+          "rubric": [
+            "Explains averages hide the slow tail; many users hit p95/p99, and a single user makes many requests so they likely hit a slow one",
+            "Explains fan-out: a request waiting on N parallel backends is as slow as the slowest of N, so the effective latency tracks a high percentile of each backend",
+            "Bonus: quantifies (e.g. if each backend is slow 1% of the time, 100-way fan-out is slow ~63% of the time)"
+          ],
+          "weakSpots": [
+            "Conflating mean and percentile",
+            "Missing the 'slowest-of-N' effect in fan-out"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -39,9 +39,12 @@ export function normalizeLibrary(candidate) {
     return normalizedTest;
   });
 
+  const tent = slugify(stringify(candidate.tent));
+
   return {
     title: stringify(candidate.title) || "Untitled Test Library",
     description: stringify(candidate.description),
+    tent: tent || null,
     tests
   };
 }

@@ -3,6 +3,11 @@
 
 import { stringify, isAnswered, codeAnswerKey } from "../lib/util.js";
 
+// Question types whose UI only captures a selection — there is no field for the
+// user to type an explanation. Graders must score these on selection correctness
+// alone and must not deduct for "missing" prose justification.
+const SELECTION_ONLY_TYPES = new Set(["multiple_choice", "single_choice", "true_false"]);
+
 export function buildMarkdown({ library, test, answers, sourcePath, runResults }) {
   const answeredCount = test.questions.filter((question) => isQuestionAnswered(question, answers)).length;
   const now = new Date().toLocaleString();
@@ -32,6 +37,13 @@ export function buildMarkdown({ library, test, answers, sourcePath, runResults }
 
   test.questions.forEach((question, index) => {
     lines.push(`### ${index + 1}. ${question.prompt}`, "", `**Question type:** ${question.type}`, "");
+
+    if (SELECTION_ONLY_TYPES.has(question.type)) {
+      lines.push(
+        "> **Grading directive:** Selection-only question. The interface captures the choice and nothing else — there is no field for the user to explain it. Grade solely on whether the selection is correct. Do NOT deduct points for a missing written justification, even if the test-level instructions ask for explanations.",
+        ""
+      );
+    }
 
     appendDetails(lines, question.details, "Question Context", question.language);
     appendDetails(lines, question.grading, "Reviewer Grading Notes", question.language);

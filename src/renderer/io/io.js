@@ -58,11 +58,16 @@ export async function copyMarkdown() {
 }
 
 export async function saveMarkdown() {
+  const state = getState();
   const test = getCurrentTest();
   const defaultName = `${slugify(test.title) || "test-answers"}-answers.md`;
 
   try {
-    const result = await window.testFiles.saveMarkdown({ defaultName, markdown: currentMarkdown() });
+    const result = await window.testFiles.saveMarkdown({
+      defaultName,
+      tent: state.library?.tent ?? null,
+      markdown: currentMarkdown()
+    });
     if (result.canceled) {
       setStatus("");
       return;
