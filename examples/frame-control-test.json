@@ -1,0 +1,372 @@
+{
+  "title": "Frame Control — 10 Rules",
+  "description": "A self-test on the 10 rules of frame control. Includes recall questions, scenario applications, and edge-case traps.",
+  "tests": [
+    {
+      "id": "recall",
+      "title": "Rule Recall",
+      "topic": "Frame Control",
+      "instructions": "Match the rule number or name.",
+      "questions": [
+        {
+          "id": "recall-1",
+          "prompt": "Which rule says: pause one beat longer than the conversation expects?",
+          "type": "single_choice",
+          "options": [
+            "Slow Your Responses",
+            "Use Strategic Silence",
+            "Stay in Your Own Mood",
+            "Be Willing to Walk"
+          ]
+        },
+        {
+          "id": "recall-2",
+          "prompt": "What does Rule 2 (Quit Over-Explaining) frame loss look like?",
+          "type": "single_choice",
+          "options": [
+            "She makes a crack and you launch into backstory",
+            "You talk louder to be heard",
+            "You change the subject completely",
+            "You walk away mid-conversation"
+          ]
+        },
+        {
+          "id": "recall-3",
+          "prompt": "Rule 3 says: stay in your own mood. What does 'catching the testy' mean?",
+          "type": "single_choice",
+          "options": [
+            "Letting someone else's bad mood pull you out of your own",
+            "Testing whether someone is trustworthy",
+            "Getting caught in a lie",
+            "Having strong opinions about something"
+          ]
+        },
+        {
+          "id": "recall-4",
+          "prompt": "According to Rule 4, what are the 'load-bearing walls of a frame'?",
+          "type": "single_choice",
+          "options": [
+            "Opinions",
+            "Silence",
+            "Confidence",
+            "Experience"
+          ]
+        },
+        {
+          "id": "recall-5",
+          "prompt": "Rule 5 — 'Be Willing to Walk' — says the deepest source of frame is:",
+          "type": "single_choice",
+          "options": [
+            "The bone-level knowledge that you do not need this to go well",
+            "Having more money and status than the other person",
+            "Being physically larger and louder",
+            "Having prepared arguments for every counterpoint"
+          ]
+        },
+        {
+          "id": "recall-6",
+          "prompt": "Which rule says: 'Not every challenge deserves a response'?",
+          "type": "single_choice",
+          "options": [
+            "Use Strategic Silence",
+            "Slow Your Responses",
+            "Quit Over-Explaining",
+            "Know Your Standards"
+          ]
+        },
+        {
+          "id": "recall-7",
+          "prompt": "Rule 7 ('Make Decisions Like a Leader') says that small leadership moments do what?",
+          "type": "single_choice",
+          "options": [
+            "Compound into respect",
+            "Make people obey you",
+            "Replace the need for rules 1-6",
+            "Only work in professional settings"
+          ]
+        },
+        {
+          "id": "recall-8",
+          "prompt": "According to Rule 8, frame is proactive, not reactive. This means:",
+          "type": "single_choice",
+          "options": [
+            "State standards early, enforce them calmly",
+            "Wait for someone to cross a line first, then react",
+            "Assume everyone already knows your boundaries",
+            "Let violations slide the first time"
+          ]
+        },
+        {
+          "id": "recall-9",
+          "prompt": "Rule 9 says 'Don't Negotiate Self-Respect.' What does it say about attraction without respect?",
+          "type": "single_choice",
+          "options": [
+            "It is short-term",
+            "It is the most common kind",
+            "It can grow into respect over time",
+            "It's the same thing"
+          ]
+        },
+        {
+          "id": "recall-10",
+          "prompt": "When you slip and lose frame (Rule 10), what should you do?",
+          "type": "single_choice",
+          "options": [
+            "Acknowledge it internally, don't dwell, return to center",
+            "Grovel and apologize to repair the frame",
+            "Double down and act like it didn't happen",
+            "End the interaction entirely"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "scenarios",
+      "title": "Scenario Drills",
+      "topic": "Frame Control",
+      "instructions": "Read each scenario and pick the response that best applies the rules.",
+      "questions": [
+        {
+          "id": "scenario-1",
+          "prompt": "You're on a date. She says, 'You're kind of quiet tonight.' You feel the pull to explain — long day at work, tired, introverted, etc. Which response uses Rule 1 (Slow Your Responses) and Rule 2 (Quit Over-Explaining)?",
+          "type": "single_choice",
+          "options": [
+            "Smile, pause a beat, say 'I'm right here,' and keep the evening moving",
+            "'Sorry, I'm just tired, work was brutal today, my boss...'",
+            "'Quiet? I'm not quiet, I was just listening to you'",
+            "Change the subject to something you're passionate about"
+          ]
+        },
+        {
+          "id": "scenario-2",
+          "prompt": "You're in a good mood. A coworker walks in visibly annoyed and starts sighing loudly, slamming drawers. You feel yourself starting to tense up. What does Rule 3 say?",
+          "type": "single_choice",
+          "options": [
+            "Stay in your own lane — don't catch the testy",
+            "Match their energy so they feel understood",
+            "Ask them what's wrong and try to fix it",
+            "Leave the room until they calm down"
+          ]
+        },
+        {
+          "id": "scenario-3",
+          "prompt": "You're out with a group. Someone asks where you want to eat. Everyone says 'I don't know, wherever.' What does Rule 7 say to do?",
+          "type": "single_choice",
+          "options": [
+            "Pick a place and say 'Let's go to [place]'",
+            "Keep asking until someone else decides",
+            "Suggest three options and let the group vote",
+            "Say 'I don't care either' to avoid conflict"
+          ]
+        },
+        {
+          "id": "scenario-4",
+          "prompt": "You and a partner are in a disagreement. She says something disrespectful — raises her voice, calls you a name. You feel your frame crack. Which combination of rules applies here?",
+          "type": "single_choice",
+          "options": [
+            "Rule 8 (state standard calmly) + Rule 9 (don't negotiate respect) + Rule 5 (willing to walk)",
+            "Rule 2 (explain why it hurt you) + Rule 7 (decide how to fix it)",
+            "Rule 1 (pause) + Rule 6 (silence) — wait for her to apologize",
+            "Rule 4 (state your opinion about her behavior) + Rule 10 (acknowledge you slipped)"
+          ]
+        },
+        {
+          "id": "scenario-5",
+          "prompt": "She texts you: 'You're so full of yourself.' You were having a good day. What combination of rules handles this best?",
+          "type": "multiple_choice",
+          "options": [
+            "Rule 3 — don't catch her testy mood",
+            "Rule 5 — be willing to walk (you don't need this to go well)",
+            "Rule 2 — explain that you didn't mean it that way",
+            "Rule 6 — not every challenge deserves a response",
+            "Rule 1 — pause before replying"
+          ]
+        },
+        {
+          "id": "scenario-6",
+          "prompt": "First date. She asks what you think about a movie you haven't seen. Which response best applies Rule 4 (Have Actual Opinions)?",
+          "type": "single_choice",
+          "options": [
+            "'I haven't seen it yet, but I generally like [director/genre]. What did you think of the ending?'",
+            "'I haven't seen it, sorry, I don't have an opinion'",
+            "'I'm sure it's fine, I'd watch anything really'",
+            "Lie and say you've seen it"
+          ]
+        },
+        {
+          "id": "scenario-7",
+          "prompt": "You made a mistake in a group setting and lost frame. People noticed. What does Rule 10 say to do?",
+          "type": "single_choice",
+          "options": [
+            "Acknowledge it internally, don't dwell, return to center. Consistency over time rebuilds frame.",
+            "Apologize profusely and explain how it happened",
+            "Joke about it to deflect the awkwardness",
+            "Leave the situation entirely and try again tomorrow"
+          ]
+        },
+        {
+          "id": "scenario-8",
+          "prompt": "You've been dating someone for a month. She cancels last minute for the third time. What's the best application of Rule 8 (Know Your Standards) + Rule 5 (Willing to Walk)?",
+          "type": "single_choice",
+          "options": [
+            "'I value reliability in my connections. If plans change last minute three times, I'm going to take some space. I'll let you reach out when your schedule opens up.'",
+            "'It's fine, I understand things come up!'",
+            "'You always do this, why do I even bother?'",
+            "Stop responding entirely with no explanation"
+          ]
+        },
+        {
+          "id": "scenario-9",
+          "prompt": "In a conversation, she says something that could be interpreted as a slight or a joke. You're not sure which. Which rule applies most directly?",
+          "type": "single_choice",
+          "options": [
+            "Rule 6 — Strategic Silence. Not every challenge deserves a response. Let it sit.",
+            "Rule 2 — ask for clarification to over-explain the situation",
+            "Rule 4 — state your opinion about what she said",
+            "Rule 7 — make a decision about how to interpret it"
+          ]
+        },
+        {
+          "id": "scenario-10",
+          "prompt": "You notice a pattern: every time someone challenges you, you talk more, go into detail, justify yourself. Which two rules do you need to internalize most?",
+          "type": "multiple_choice",
+          "options": [
+            "Rule 1 — Slow Your Responses (pause first)",
+            "Rule 2 — Quit Over-Explaining (say less than you want to)",
+            "Rule 4 — Have Actual Opinions",
+            "Rule 7 — Make Decisions Like a Leader",
+            "Rule 6 — Strategic Silence"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "edge-cases",
+      "title": "Edge Cases & Traps",
+      "topic": "Frame Control",
+      "instructions": "These are harder. Multiple answers may seem right. Pick the BEST fit.",
+      "questions": [
+        {
+          "id": "edge-1",
+          "prompt": "Rule 1 says 'Slow Your Responses' and Rule 6 says 'Use Strategic Silence.' What's the difference?",
+          "type": "single_choice",
+          "options": [
+            "Rule 1 is a pause before responding (you still answer). Rule 6 is choosing not to answer at all.",
+            "They are the same thing — silence is silence",
+            "Rule 1 is for arguments, Rule 6 is for flirting",
+            "Rule 1 is internal, Rule 6 is external"
+          ],
+          "rubric": "Critical distinction. Rule 1 delays your response (you still engage, but on your beat). Rule 6 withholds a response entirely (some challenges don't deserve engagement).",
+          "commonMistakes": "Treating silence as one thing. Strategic silence is active non-engagement, not just delayed engagement."
+        },
+        {
+          "id": "edge-2",
+          "prompt": "Rule 2 says 'Say less than you want to.' When should you IGNORE this rule?",
+          "type": "single_choice",
+          "options": [
+            "When someone genuinely asks for your thoughts and the context calls for depth",
+            "Never — always say less than you want to",
+            "When you're angry and need to vent",
+            "When you feel the other person won't understand otherwise"
+          ],
+          "rubric": "Rules aren't absolutes. Rule 2 guards against defensive over-explaining, not all explanation. Context matters."
+        },
+        {
+          "id": "edge-3",
+          "prompt": "Rule 5 says 'Be Willing to Walk.' What's the difference between being willing to walk and actually walking?",
+          "type": "single_choice",
+          "options": [
+            "Willingness to walk is an internal state (you don't need this). Actually walking is an action you take when standards are violated.",
+            "There is no difference — if you're willing to walk, you should walk",
+            "Being willing to walk means you threaten to leave; actually walking means you do it",
+            "Willingness to walk is a bluff; actually walking is real"
+          ],
+          "rubric": "Key nuance. Willingness is posture (unshakeable because you don't need the outcome). Walking is the enforcement mechanism. You can hold the posture without acting on it."
+        },
+        {
+          "id": "edge-4",
+          "prompt": "Rule 3 says 'Stay in Your Own Mood.' Your partner is clearly upset and needs support. If you stay in your own good mood, aren't you being cold?",
+          "type": "single_choice",
+          "options": [
+            "Support and mood contagion are different. You can offer empathy without catching their emotional state.",
+            "Yes — you should match their mood to show you care",
+            "Rule 3 only applies to casual situations, not relationships",
+            "You should stay in your own mood but pretend to be upset"
+          ],
+          "rubric": "Crucial distinction. Rule 3 is about not letting someone else's mood PULL you. Offering genuine support from a centered place is different from catching their chaos."
+        },
+        {
+          "id": "edge-5",
+          "prompt": "Rule 9: 'Don't Negotiate Self-Respect.' You're in a long-term relationship. She crosses a boundary. You state your standard. She apologizes and asks for another chance. Is accepting that apology 'negotiating self-respect'?",
+          "type": "single_choice",
+          "options": [
+            "No. Stating the standard and accepting a genuine apology is not negotiation — it's enforcement followed by grace.",
+            "Yes — you should walk permanently the first time any boundary is crossed",
+            "Only if the boundary was about respect specifically",
+            "It depends on how long you've been together"
+          ],
+          "rubric": "Boundary enforcement doesn't mean zero forgiveness. The key is whether you stated the standard clearly and the apology was genuine — not whether you 'won' by staying mad."
+        },
+        {
+          "id": "edge-6",
+          "prompt": "Rule 4 says have actual opinions. Which of these is an actual opinion vs. a preference vs. a non-opinion?",
+          "type": "multiple_choice",
+          "options": [
+            "'The pacing in the second act undermines the entire film' — opinion",
+            "'I like Italian food' — preference",
+            "'I don't know, whatever you want' — non-opinion",
+            "'That restaurant is great because of their wine list and the chef's technique' — opinion",
+            "'I don't have strong feelings about it' — acceptable non-opinion"
+          ]
+        },
+        {
+          "id": "edge-7",
+          "prompt": "She's testing you by bringing up a topic she knows you disagree on (politics, religion, etc.). You feel your frame wobble. What's the play?",
+          "type": "single_choice",
+          "options": [
+            "Rule 6 (silence doesn't mean you have no position) + Rule 4 (hold your opinion without needing to convert her) + Rule 5 (you don't need her agreement)",
+            "Rule 2 — explain your position thoroughly so she understands",
+            "Rule 7 — make a decision to avoid the topic entirely",
+            "Rule 3 — match her energy and engage fully"
+          ],
+          "rubric": "Frame is tested most on high-stakes topics. Your position is: I know what I think, I don't need you to agree, and I'm not going to fight about it."
+        },
+        {
+          "id": "edge-8",
+          "prompt": "You over-explained (violated Rule 2) and you feel the frame slip. What does Rule 10 actually say to do in this moment?",
+          "type": "single_choice",
+          "options": [
+            "Acknowledge it internally, don't dwell, return to center right now",
+            "Verbally acknowledge the mistake to the other person",
+            "End the conversation and try again later",
+            "Over-explain why you over-explained (meta-apology)"
+          ],
+          "rubric": "This is the most common trap. Meta-apologizing for frame loss is just more frame loss. The move: note it, drop it, come back to center."
+        }
+      ]
+    },
+    {
+      "id": "written",
+      "title": "Written Reflection",
+      "topic": "Frame Control",
+      "instructions": "Answer honestly in your own words. There's no right answer — the goal is self-awareness.",
+      "questions": [
+        {
+          "id": "written-1",
+          "prompt": "Which of the 10 rules do you struggle with most? Describe a specific situation where you lost frame and which rule would have helped.",
+          "type": "long_answer"
+        },
+        {
+          "id": "written-2",
+          "prompt": "Is there a person in your life who consistently pulls you out of your frame? Which rules would help you handle them differently?",
+          "type": "long_answer"
+        },
+        {
+          "id": "written-3",
+          "prompt": "Pick one rule to focus on for the next 7 days. How will you practice it? What's your specific trigger or cue to remember it?",
+          "type": "short_answer"
+        }
+      ]
+    }
+  ]
+}
