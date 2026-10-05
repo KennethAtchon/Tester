@@ -1,34 +1,58 @@
 {
   "title": "Learning Checks",
-  "description": "Starter tests you can replace with your own JSON file.",
+  "description": "Starter tests you can replace with your own JSON file. They also show the optional learning fields: answer keys, a one-line why, misconception notes for wrong options, a hint ladder, rubrics, and prerequisites.",
   "tent": "learning-checks",
   "tests": [
     {
       "id": "web-fundamentals",
       "title": "Web Fundamentals",
       "topic": "HTML, CSS, and JavaScript",
+      "relevance": "These come up in almost every front-end interview, and they decide whether a page is accessible, adapts to any screen, and stays snappy under load.",
       "instructions": "Answer from memory. Use examples when they help.",
       "questions": [
         {
           "id": "q1",
           "type": "short_answer",
-          "prompt": "What problem does semantic HTML solve?"
+          "prompt": "What problem does semantic HTML solve?",
+          "expectedAnswer": "Semantic HTML gives content meaning so browsers, assistive technology, and search engines can understand its structure.",
+          "why": "A <nav> or <button> carries meaning a <div> doesn't — screen readers, keyboard navigation, and search all rely on it."
         },
         {
           "id": "q2",
           "type": "single_choice",
           "prompt": "Which CSS layout tool is best for two-dimensional page layouts?",
-          "options": [
-            "Flexbox",
-            "Grid",
-            "Float",
-            "Position absolute"
-          ]
+          "options": ["Flexbox", "Grid", "Float", "Position absolute"],
+          "expectedAnswer": "Grid",
+          "why": "Grid controls rows and columns at the same time; Flexbox lays things out along one axis.",
+          "misconceptions": {
+            "Flexbox": "Flexbox is one-dimensional — great for a row or a column, awkward for both at once.",
+            "Float": "Floats were a workaround for wrapping text around images, not a layout system.",
+            "Position absolute": "Absolute positioning takes elements out of the flow, so nothing responds to their size."
+          }
+        },
+        {
+          "id": "q2b",
+          "type": "true_false",
+          "prompt": "await pauses the whole JavaScript thread until the promise settles.",
+          "expectedAnswer": false,
+          "why": "await only suspends the current async function; the event loop keeps running other work."
         },
         {
           "id": "q3",
           "type": "long_answer",
-          "prompt": "Explain the difference between synchronous and asynchronous JavaScript."
+          "prompt": "Explain the difference between synchronous and asynchronous JavaScript.",
+          "expectedAnswer": "Synchronous code runs line by line and blocks until each step finishes. Asynchronous code starts an operation, such as a network request or timer, and continues; the result is handled later through callbacks, promises, or async/await when the event loop picks it up.",
+          "rubric": [
+            "Says synchronous code blocks until each step finishes",
+            "Says asynchronous work continues without waiting",
+            "Mentions the event loop or callback queue",
+            "Names callbacks, promises, or async/await",
+            "Gives a concrete example such as fetch or setTimeout"
+          ],
+          "hints": [
+            "Think about what happens to the next line while a network request is in flight.",
+            "Something has to decide when a finished request's callback actually runs."
+          ]
         }
       ]
     },
@@ -36,17 +60,67 @@
       "id": "git-basics",
       "title": "Git Basics",
       "topic": "Version Control",
+      "relevance": "Clean commits and safe review habits are what teammates notice first.",
       "instructions": "Keep answers practical and command-focused.",
       "questions": [
         {
           "id": "q1",
           "type": "short_answer",
-          "prompt": "What does staging a file mean in Git?"
+          "prompt": "What does staging a file mean in Git?",
+          "expectedAnswer": "Staging adds the file's current changes to the index so they are included in the next commit.",
+          "why": "The staging area lets you choose exactly which changes go into a commit, instead of everything in the working tree."
+        },
+        {
+          "id": "q1b",
+          "type": "multiple_choice",
+          "prompt": "Which commands show changes before you commit? Select all that apply.",
+          "options": ["git diff", "git diff --staged", "git status", "git push", "git reset --hard"],
+          "expectedAnswer": ["git diff", "git diff --staged", "git status"],
+          "why": "diff shows unstaged edits, diff --staged shows what will be committed, and status lists which files changed.",
+          "misconceptions": {
+            "git push": "push sends commits that already exist — by then it's too late to review them locally.",
+            "git reset --hard": "reset --hard throws changes away; it doesn't show them."
+          }
         },
         {
           "id": "q2",
           "type": "long_answer",
-          "prompt": "Describe a safe workflow for reviewing changes before committing."
+          "prompt": "Describe a safe workflow for reviewing changes before committing.",
+          "rubric": [
+            "Checks git status to see which files changed",
+            "Reviews unstaged changes with git diff",
+            "Stages deliberately (git add -p or specific files)",
+            "Reviews staged changes with git diff --staged before committing",
+            "Writes a clear commit message"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "git-collaboration",
+      "title": "Git Collaboration",
+      "topic": "Branches and pull requests",
+      "relevance": "Builds on Git Basics: once your own commits are clean, the next skill is sharing them safely.",
+      "prerequisites": ["git-basics"],
+      "questions": [
+        {
+          "id": "q1",
+          "type": "single_choice",
+          "prompt": "You pushed a branch that others have pulled. What's the safe way to undo a bad commit on it?",
+          "options": ["git revert <commit>", "git reset --hard HEAD~1 then force-push", "Delete the branch and recreate it", "git commit --amend then force-push"],
+          "expectedAnswer": "git revert <commit>",
+          "why": "revert adds a new commit that undoes the change, so nobody else's history is rewritten.",
+          "misconceptions": {
+            "git reset --hard HEAD~1 then force-push": "Rewriting shared history breaks everyone who already pulled it.",
+            "git commit --amend then force-push": "Amending also rewrites the commit — same problem as reset on a shared branch."
+          }
+        },
+        {
+          "id": "q2",
+          "type": "short_answer",
+          "prompt": "What does git fetch do that git pull doesn't?",
+          "expectedAnswer": "git fetch downloads remote commits without merging them into your branch, so you can inspect them first.",
+          "why": "pull is fetch plus merge (or rebase); fetch alone never changes your working branch."
         }
       ]
     }

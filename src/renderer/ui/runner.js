@@ -1,33 +1,35 @@
 // Renderer-side code runner: builds the editor + "Run tests" UI for code_run
-// questions and talks to the sandboxed harness over the preload bridge.
-
-import { getAnswer, getRunResult, setRunResult } from "../state/store.js";
+// questions and talks to the sandboxed harness over the preload bridge. Used
+// by both the practice session and the mock exam, so it takes its state in
+// and reports results out instead of reading a store.
 
 // Builds the full answer control for a code question: an editor, a run button,
-// and a results panel that reflects the last sandboxed execution.
-export function renderCodeControl(test, question, onAnswerChange) {
+// and a results panel that reflects the last sandboxed execution. The returned
+// element exposes runTests() so a caller can run them on submit.
+export function renderCodeControl({ answerId, initialCode = "", language = "javascript", tests = [], lastResult = null, onResult = () => {} }) {
   const container = document.createElement("div");
   container.className = "code-runner";
 
   const editor = document.createElement("textarea");
   editor.className = "code-editor long-answer";
   editor.spellcheck = false;
-  editor.value = getAnswer(test.id, question.id) ?? question.starterCode ?? "";
-  editor.dataset.questionId = question.id;
+  editor.value = initialCode;
+  editor.dataset.questionId = answerId;
   // Tag for the CM5 upgrade applied after render; the sandbox runs JS, so
   // default to javascript when the question omits an explicit language.
-  editor.dataset.codeEditor = question.language || "javascript";
+  editor.dataset.codeEditor = language || "javascript";
   editor.placeholder = "Write your solution here";
-  // Editor input is captured by the form-level delegated handler in ui.js, so
-  // the editor itself only needs to expose its value to the run button below.
+  // Editor input bubbles to the caller's delegated "input" listener, so the
+  // editor itself only needs to expose its value to the run button below.
 
   const toolbar = document.createElement("div");
   toolbar.className = "code-runner-toolbar";
 
+  const label = `Run ${tests.length} test${tests.length === 1 ? "" : "s"}`;
   const runButton = document.createElement("button");
   runButton.type = "button";
   runButton.className = "run-button";
-  runButton.textContent = `Run ${question.runnerTests.length} test${question.runnerTests.length === 1 ? "" : "s"}`;
+  runButton.textContent = label;
 
   const summary = document.createElement("span");
   summary.className = "run-summary";
@@ -39,28 +41,28 @@ export function renderCodeControl(test, question, onAnswerChange) {
 
   container.append(editor, toolbar, results);
 
-  renderResult(results, summary, getRunResult(test.id, question.id));
+  renderResult(results, summary, lastResult);
 
-  runButton.addEventListener("click", async () => {
+  const runTests = async () => {
     runButton.disabled = true;
     runButton.textContent = "Running…";
     summary.textContent = "";
-
+    let result;
     try {
-      const result = await window.testFiles.runCode({
-        code: editor.value,
-        tests: question.runnerTests
-      });
-      setRunResult(test.id, question.id, result);
-      renderResult(results, summary, result);
-      onAnswerChange();
+      result = await window.testFiles.runCode({ code: editor.value, tests });
     } catch (error) {
-      renderResult(results, summary, { compileError: error.message, results: [], logs: [] });
+      result = { compileError: error.message, results: [], logs: [] };
     } finally {
       runButton.disabled = false;
-      runButton.textContent = `Run ${question.runnerTests.length} test${question.runnerTests.length === 1 ? "" : "s"}`;
+      runButton.textContent = label;
     }
-  });
+    renderResult(results, summary, result);
+    onResult(result);
+    return result;
+  };
+
+  runButton.addEventListener("click", runTests);
+  container.runTests = runTests;
 
   return container;
 }

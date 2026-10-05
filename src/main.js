@@ -9,14 +9,20 @@ const examplesPath = path.join(appRoot, "examples");
 const samplePath = path.join(appRoot, "sample-tests.json");
 const resultsPath = path.join(appRoot, "results");
 
+// Learner progress (memory model, review log, settings) lives in the user-data
+// folder, not the repo, so personal study history never ends up in commits.
+function progressFilePath() {
+  return path.join(app.getPath("userData"), "learning-progress.json");
+}
+
 function createWindow() {
   const window = new BrowserWindow({
-    width: 1180,
-    height: 820,
-    minWidth: 760,
-    minHeight: 620,
-    title: "Test Form Maker",
-    backgroundColor: "#f6f2ea",
+    width: 1280,
+    height: 860,
+    minWidth: 900,
+    minHeight: 640,
+    title: "Recall",
+    backgroundColor: "#f7f7f5",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -132,6 +138,39 @@ ipcMain.handle("tests:example", async (_event, fileName) => {
 ipcMain.handle("code:run", async (_event, payload) => runCode(payload));
 
 ipcMain.handle("code:exec", async (_event, payload) => runExec(payload));
+
+ipcMain.handle("progress:load", async () => {
+  try {
+    return await fs.readFile(progressFilePath(), "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+});
+
+// Write-then-rename so a crash mid-save can't leave a truncated file. Saves
+// are chained so two in flight never race on the temp file.
+let progressSaveChain = Promise.resolve();
+
+ipcMain.handle("progress:save", async (_event, content) => {
+  if (typeof content !== "string") {
+    throw new Error("Progress must be a JSON string.");
+  }
+  const filePath = progressFilePath();
+  const tempPath = `${filePath}.tmp`;
+  const write = async () => {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(tempPath, content, "utf8");
+    await fs.rename(tempPath, filePath);
+  };
+  progressSaveChain = progressSaveChain.then(write, write);
+  await progressSaveChain;
+  return { filePath };
+});
+
+ipcMain.handle("progress:path", async () => progressFilePath());
 
 ipcMain.handle("tests:saveMarkdown", async (_event, { defaultName, tent, markdown }) => {
   const fileName = sanitizeMarkdownFileName(defaultName);

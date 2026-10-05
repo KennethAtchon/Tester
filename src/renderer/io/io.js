@@ -1,126 +1,79 @@
-// IO controllers: bridge the preload file API to the store + UI. Each load runs
-// under a request id so a slow load that the user has already moved past cannot
-// clobber newer state.
+// IO controllers: bridge the preload file API to the learner catalog. Loading
+// a library enrolls it (its JSON is kept with your progress so reviews can be
+// scheduled across launches); re-loading the same library refreshes it.
 
-import { getState, getCurrentTest, loadLibrary } from "../state/store.js";
-import { buildMarkdown } from "../domain/markdown.js";
-import { slugify } from "../lib/util.js";
-import { setStatus, startLoad, finishLoad, isCurrentLoad } from "../state/status.js";
-import { render, renderExampleList, setExampleListError } from "../ui/view.js";
+import { enrollLibrary } from "../state/catalog.js";
+import { progress } from "../state/progress.js";
+import { toast } from "../ui/toast.js";
+import { plural } from "../ui/components.js";
 
-export async function loadJsonFromDisk() {
-  await withLoad("Opening JSON file...", async (loadId) => {
+export async function listExamples() {
+  try {
+    return await window.testFiles.listExamples();
+  } catch {
+    return [];
+  }
+}
+
+export function enrolledFileNames() {
+  return new Set(Object.values(progress().libraries).map((record) => record.fileName).filter(Boolean));
+}
+
+export async function importFromDisk() {
+  return guard(async () => {
     const result = await window.testFiles.openJson();
-    if (!isCurrentLoad(loadId)) {
-      return;
-    }
-    if (result.canceled) {
-      setStatus("");
-      return;
-    }
-    applyLibrary(result);
+    return result.canceled ? null : enroll(result);
   });
 }
 
-export async function loadSampleJson() {
-  await withLoad("Loading sample test library...", async (loadId) => {
-    const result = await window.testFiles.openSample();
-    if (isCurrentLoad(loadId)) {
-      applyLibrary(result);
-    }
-  });
+export async function importSample() {
+  return guard(async () => enroll(await window.testFiles.openSample()));
 }
 
-export async function loadExampleJson(fileName) {
-  await withLoad(`Loading ${fileName}...`, async (loadId) => {
-    const result = await window.testFiles.openExample(fileName);
-    if (isCurrentLoad(loadId)) {
-      applyLibrary(result);
-    }
-  });
+export async function importExample(fileName) {
+  return guard(async () => enroll(await window.testFiles.openExample(fileName)));
 }
 
-export async function loadExamples() {
+export async function copyText(text, successMessage) {
   try {
-    renderExampleList(await window.testFiles.listExamples());
+    await navigator.clipboard.writeText(text);
+    toast(successMessage, { tone: "success" });
   } catch (error) {
-    setExampleListError("No examples found.");
+    toast(error.message, { tone: "error" });
   }
 }
 
-export async function copyMarkdown() {
+export async function saveMarkdownFile(payload) {
   try {
-    await navigator.clipboard.writeText(currentMarkdown());
-    setStatus("Markdown copied to the clipboard.");
+    const result = await window.testFiles.saveMarkdown(payload);
+    if (!result.canceled) {
+      toast(`Saved to ${result.filePath}`, { tone: "success", timeout: 6000 });
+    }
   } catch (error) {
-    setStatus(error.message, true);
+    toast(error.message, { tone: "error" });
   }
 }
 
-export async function saveMarkdown() {
-  const state = getState();
-  const test = getCurrentTest();
-  const defaultName = `${slugify(test.title) || "test-answers"}-answers.md`;
-
+function enroll(result) {
+  let raw;
   try {
-    const result = await window.testFiles.saveMarkdown({
-      defaultName,
-      tent: state.library?.tent ?? null,
-      markdown: currentMarkdown()
-    });
-    if (result.canceled) {
-      setStatus("");
-      return;
-    }
-    setStatus(`Saved Markdown to ${result.filePath}.`);
+    raw = JSON.parse(result.content);
   } catch (error) {
-    setStatus(error.message, true);
+    toast(`That file isn't valid JSON: ${error.message}`, { tone: "error", timeout: 7000 });
+    return null;
   }
+  const fileName = String(result.filePath || "").split(/[\\/]/).pop();
+  const { key, isNew, library } = enrollLibrary(raw, { sourcePath: result.filePath, fileName });
+  const itemCount = library.tests.reduce((sum, test) => sum + test.questions.length, 0);
+  toast(`${isNew ? "Added" : "Refreshed"} “${library.title}” · ${plural(library.tests.length, "skill")} · ${plural(itemCount, "item")}`, { tone: "success" });
+  return key;
 }
 
-function applyLibrary(result) {
-  const library = loadLibrary(JSON.parse(result.content), result.filePath);
-  render();
-  setStatus(`Loaded ${pluralizeTests(library.tests.length)} from ${result.filePath}.`);
-}
-
-function currentMarkdown() {
-  const state = getState();
-  const test = getCurrentTest();
-
-  return buildMarkdown({
-    library: state.library,
-    test,
-    answers: state.answers[test.id] ?? {},
-    sourcePath: state.sourcePath,
-    runResults: pickRunResults(test)
-  });
-}
-
-function pickRunResults(test) {
-  const results = {};
-  for (const question of test.questions) {
-    const key = `${test.id}:${question.id}`;
-    if (getState().runResults[key]) {
-      results[question.id] = getState().runResults[key];
-    }
-  }
-  return results;
-}
-
-async function withLoad(message, work) {
-  const loadId = startLoad(message);
+async function guard(work) {
   try {
-    await work(loadId);
+    return await work();
   } catch (error) {
-    if (isCurrentLoad(loadId)) {
-      setStatus(error.message, true);
-    }
-  } finally {
-    finishLoad(loadId);
+    toast(error.message, { tone: "error", timeout: 7000 });
+    return null;
   }
-}
-
-function pluralizeTests(count) {
-  return `${count} test${count === 1 ? "" : "s"}`;
 }

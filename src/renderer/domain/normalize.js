@@ -68,6 +68,9 @@ function normalizeTest(test, index) {
     title,
     topic: stringify(test.topic),
     instructions: stringify(test.instructions),
+    // Learning fields: why the skill matters, and skills to master first.
+    relevance: stringify(test.relevance || test.why || test.whyItMatters),
+    prerequisites: Array.isArray(test.prerequisites) ? test.prerequisites.map(stringify).filter(Boolean) : [],
     questions: questions.map((question, questionIndex) => {
       const normalizedQuestion = normalizeQuestion(question, questionIndex);
       normalizedQuestion.id = getUniqueId(normalizedQuestion.id, usedQuestionIds);
@@ -103,8 +106,65 @@ function normalizeQuestion(question, index) {
     starterCode: stringify(question.starterCode || question.starter_code),
     answerMode,
     language,
-    placeholder: stringify(question.placeholder)
+    placeholder: stringify(question.placeholder),
+    // Learning fields (all optional): the answer key used for auto-grading,
+    // a one-line "why" for feedback, a hint ladder, a rubric for self-grading,
+    // and option → misconception notes for wrong choices.
+    answerKey: getAnswerKey(question),
+    why: stringify(question.why || question.explanation || question.rationale),
+    hints: normalizeList(question.hints).slice(0, 3),
+    rubric: normalizeList(question.rubric),
+    misconceptions: getMisconceptions(question)
   };
+}
+
+function getAnswerKey(question) {
+  const candidates = [
+    question.expectedAnswer,
+    question.expected_answer,
+    question.correctAnswer,
+    question.correct_answer,
+    question.answer
+  ];
+
+  for (const value of candidates) {
+    if (typeof value === "boolean") {
+      return value ? "True" : "False";
+    }
+    if (Array.isArray(value)) {
+      const items = value.map(stringify).filter(Boolean);
+      if (items.length > 0) {
+        return items;
+      }
+    }
+    if (stringify(value)) {
+      return stringify(value);
+    }
+  }
+
+  return null;
+}
+
+function getMisconceptions(question) {
+  const source = question.misconceptions || question.distractors;
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    return {};
+  }
+
+  const result = {};
+  for (const [option, note] of Object.entries(source)) {
+    if (stringify(option) && stringify(note)) {
+      result[stringify(option)] = stringify(note);
+    }
+  }
+  return result;
+}
+
+function normalizeList(value) {
+  if (Array.isArray(value)) {
+    return value.map(stringify).filter(Boolean);
+  }
+  return stringify(value) ? [stringify(value)] : [];
 }
 
 const ANSWER_MODES = ["text", "code", "both"];
