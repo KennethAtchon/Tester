@@ -1,0 +1,608 @@
+{
+  "id": "foundations",
+  "title": "Foundations",
+  "description": "How a design discussion runs, what happens on every request, the numbers that bound it, and how systems grow.",
+  "lessons": [
+    {
+      "id": "design-process",
+      "title": "The design process",
+      "summary": "Six steps that turn a vague prompt into a design you can defend.",
+      "minutes": 8,
+      "steps": [
+        {
+          "id": "first-move",
+          "type": "choice",
+          "prompt": "An interviewer says: “Design a photo-sharing app.” What should you do first?",
+          "options": [
+            "Ask which features matter and how many users to expect",
+            "Sketch the high-level architecture",
+            "Pick a database that can scale",
+            "Estimate five years of photo storage"
+          ],
+          "answer": "Ask which features matter and how many users to expect",
+          "why": "Every later choice depends on what the system must do and at what scale. Without that, any architecture is a guess.",
+          "misconceptions": {
+            "Sketch the high-level architecture": "Drawing first means designing for requirements you've imagined. A few minutes of questions can change the whole picture.",
+            "Pick a database that can scale": "The right database follows from the data and its access patterns, which you don't know yet.",
+            "Estimate five years of photo storage": "Estimation comes second: you need users, photos per day and photo size from the requirements before you can estimate anything."
+          }
+        },
+        {
+          "id": "six-steps",
+          "type": "concept",
+          "title": "Six steps, in order",
+          "body": "Interviews and design docs follow the same arc. **Requirements** say what to build and how well. **Estimates** turn that into numbers. The **API** and **data model** fix the contract and what's stored. Only then do you draw the **high-level design**, and spend what's left on **deep dives** into the hardest parts and their trade-offs.",
+          "visual": { "kind": "flow", "steps": ["Requirements", "Estimation", "API", "Data model", "High-level design", "Deep dives"] }
+        },
+        {
+          "id": "six-step-order",
+          "type": "order",
+          "prompt": "Put the six steps of a design discussion in order.",
+          "items": [
+            "Clarify requirements",
+            "Estimate scale",
+            "Define the API",
+            "Design the data model",
+            "Draw the high-level design",
+            "Deep-dive into trade-offs"
+          ],
+          "why": "Each step feeds the next: scale comes from requirements, the API exposes the features, and the data model stores what the API needs. Deep dives come last because you can only find the bottleneck in a design that exists."
+        },
+        {
+          "id": "why-order-matters",
+          "type": "concept",
+          "title": "Why the order matters",
+          "body": "Each answer constrains the next. A read-heavy feed at 100K requests/sec needs caching and replicas; a write-heavy metrics pipeline needs partitioning and queues. Until you know which one you're building, every box you draw is a guess, and guesses are hard to defend when the interviewer asks *why*.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "Boxes first", "points": ["Tools picked before the load is known", "Solves problems nobody has", "Misses the real bottleneck"] },
+            "right": { "title": "Requirements first", "points": ["Numbers justify every component", "Scope stays small enough to finish", "Time goes to the hard part"] }
+          }
+        },
+        {
+          "id": "step-questions",
+          "type": "match",
+          "prompt": "Match each step to the question it answers.",
+          "pairs": [
+            ["Requirements", "What must it do, and how well?"],
+            ["Estimation", "How many requests and how many bytes?"],
+            ["API", "What calls can clients make?"],
+            ["Data model", "What's stored, and how is it looked up?"],
+            ["Deep dives", "Where does it break, and what's the fix?"]
+          ],
+          "why": "Each step answers one question, and its answer is the input to the next. If you can't say which question you're answering, you've probably skipped a step."
+        },
+        {
+          "id": "time-budget",
+          "type": "concept",
+          "title": "A 45-minute budget",
+          "body": "A rough split for a 45-minute interview (it varies by company). Requirements and estimates are quick but never skipped. The biggest blocks go to the high-level design and the deep dives, where most of the signal is. If you're 20 minutes in with no diagram, start drawing.",
+          "visual": {
+            "kind": "bars",
+            "unit": "min",
+            "items": [
+              { "label": "Requirements", "value": 5 },
+              { "label": "Estimation", "value": 5 },
+              { "label": "API + data model", "value": 5 },
+              { "label": "High-level design", "value": 10 },
+              { "label": "Deep dives", "value": 15 },
+              { "label": "Wrap-up", "value": 5 }
+            ]
+          }
+        },
+        {
+          "id": "minute-25",
+          "type": "choice",
+          "prompt": "It's minute 25 of 45. You have requirements, estimates and an API, but no diagram yet. What's the best move?",
+          "options": [
+            "Sketch the high-level design now, then pick one area to go deep",
+            "Finish the data model, down to every column and index",
+            "Revisit the estimates to make them more precise",
+            "Ask which database the interviewer's company uses"
+          ],
+          "answer": "Sketch the high-level design now, then pick one area to go deep",
+          "why": "The design and deep dives carry most of the signal and need about 25 minutes. A rough data model can be filled in as the diagram takes shape.",
+          "misconceptions": {
+            "Finish the data model, down to every column and index": "The key entities and how they're looked up are enough for now. Column-level detail can wait for a deep dive, if it matters at all.",
+            "Revisit the estimates to make them more precise": "Estimates only need the right order of magnitude. More precision won't change the design, and the clock is running.",
+            "Ask which database the interviewer's company uses": "Their stack doesn't change what this system needs. Choose from the requirements and say why."
+          }
+        },
+        {
+          "id": "no-single-answer",
+          "type": "concept",
+          "title": "No single right answer",
+          "body": "Most prompts have several good designs. Interviewers grade how you get there: do you clarify before building, back choices with numbers, name what each choice costs, and spot your own bottlenecks? “Cassandra, because writes dominate and slightly stale reads are fine here” beats a bare “Cassandra” every time.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "Weak signal", "points": ["Names tools without reasons", "Defends one “correct” design", "Ignores failures and growth"] },
+            "right": { "title": "Strong signal", "points": ["Ties each choice to a requirement", "States what each choice gives up", "Finds and fixes the bottleneck"] }
+          }
+        },
+        {
+          "id": "signal-sort",
+          "type": "sort",
+          "prompt": "Strong or weak signal in a design interview?",
+          "buckets": ["Strong signal", "Weak signal"],
+          "items": [
+            { "text": "Asks how many daily users to expect before picking a database", "bucket": "Strong signal" },
+            { "text": "Says “we'll use Kafka” without saying why", "bucket": "Weak signal", "why": "A tool without a reason is a guess. Say what problem it solves here." },
+            { "text": "Adds a cache and notes that reads may be a few seconds stale", "bucket": "Strong signal", "why": "Naming the cost of a choice shows you understand the trade-off." },
+            { "text": "Spends 15 minutes perfecting the database schema", "bucket": "Weak signal", "why": "Depth in the wrong place leaves the design and deep dives unfinished." },
+            { "text": "Insists there's only one correct architecture", "bucket": "Weak signal" },
+            { "text": "Points out that their own single database is a point of failure", "bucket": "Strong signal", "why": "Finding your own weak spots is exactly what deep dives are for." }
+          ],
+          "why": "Interviewers look for reasoning: requirements first, numbers behind choices, and honest trade-offs. Tools and detail without a reason add little signal."
+        },
+        {
+          "id": "tradeoff-fill",
+          "type": "fill",
+          "text": "A defensible design decision has three parts: the choice, the [[requirement]] that motivates it, and the [[trade-off]] you accept. For example: “Cache the feed, because reads outnumber writes 100 to 1, at the cost of a few seconds of [[staleness|stale data]].”",
+          "bank": ["requirement", "trade-off", "staleness", "vendor", "downtime"],
+          "why": "Choice, reason and cost is the shape of every decision you can defend. A cache speeds up reads, but its copies can lag behind the database; it doesn't cause downtime."
+        }
+      ]
+    },
+    {
+      "id": "anatomy-of-a-request",
+      "title": "Anatomy of a request",
+      "summary": "What happens between pressing Enter and seeing a page.",
+      "minutes": 8,
+      "steps": [
+        {
+          "id": "what-first",
+          "type": "choice",
+          "prompt": "You type `shop.example.com` and press Enter. What must the browser get before it can open a connection?",
+          "options": ["The server's IP address", "The site's TLS certificate", "The page's HTML", "A session cookie"],
+          "answer": "The server's IP address",
+          "why": "Connections go to IP addresses, not names, so the browser first asks DNS to resolve `shop.example.com`. The certificate arrives later, during the TLS handshake on that connection.",
+          "misconceptions": {
+            "The site's TLS certificate": "The server sends its certificate during the TLS handshake, which needs a TCP connection, which needs an IP address.",
+            "The page's HTML": "The HTML is the response. You need a connection before you can ask for it.",
+            "A session cookie": "Cookies ride along on the HTTP request. They don't help find the server."
+          }
+        },
+        {
+          "id": "the-relay",
+          "type": "concept",
+          "title": "A page load is a relay",
+          "body": "**DNS** turns the name into an IP address. The browser opens a **TCP** connection and secures it with **TLS**, then sends an **HTTP** request. A **load balancer** passes it to an **app server**, which reads from a **cache** or **database** and builds the response. The browser parses it, fetches CSS, scripts and images, and paints.",
+          "visual": { "kind": "flow", "steps": ["Browser", "DNS", "TCP + TLS", "Load balancer", "App server", "Cache / DB", "Render"] }
+        },
+        {
+          "id": "dns-fill",
+          "type": "fill",
+          "text": "The browser asks a recursive [[resolver]] for the site's [[IP address]]. If the answer isn't cached, the resolver asks a root server, then the `.com` servers, then the domain's authoritative server. The answer is cached for its [[TTL|time to live]], so a repeat visit usually skips the lookup.",
+          "bank": ["resolver", "IP address", "TTL", "load balancer", "certificate"],
+          "why": "DNS is a cached lookup, not a hop in the request path. Once the browser has the IP, it connects straight to it, usually your load balancer."
+        },
+        {
+          "id": "handshakes",
+          "type": "concept",
+          "title": "Handshakes cost round trips",
+          "body": "Before any HTTP is sent, the browser opens a **TCP** connection (SYN, SYN-ACK, ACK), then negotiates **TLS**: agreeing on keys and checking the server's certificate. Each exchange costs a network round trip (RTT), so distance matters more than server speed. Browsers reuse connections, so later requests skip both.",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "1 RTT", "label": "TCP handshake" },
+              { "value": "+1 RTT", "label": "TLS 1.3 (TLS 1.2 needs 2)" },
+              { "value": "+1 RTT", "label": "HTTP request → first byte back" }
+            ]
+          }
+        },
+        {
+          "id": "first-byte-sydney",
+          "type": "estimate",
+          "prompt": "A user in Sydney opens a brand-new HTTPS connection to a server in Virginia. Roughly how long until the first byte of the response arrives?",
+          "given": [
+            ["Round trip Sydney ↔ Virginia", "≈ 200 ms (approximate)"],
+            ["DNS", "already cached"],
+            ["TCP handshake", "1 round trip"],
+            ["TLS 1.3 handshake", "1 round trip"],
+            ["HTTP request → first byte", "1 round trip"],
+            ["Server processing", "≈ 0 (ignore it)"]
+          ],
+          "answer": 600,
+          "unit": "ms",
+          "tolerance": 0.3,
+          "hint": "Count the round trips, then multiply.",
+          "solution": ["Round trips: 1 (TCP) + 1 (TLS) + 1 (HTTP) = 3", "3 × 200 ms = 600 ms"],
+          "why": "Distance dominates: no server is fast enough to beat the speed of light. That's why CDNs terminate TCP and TLS close to users, and why reusing a connection makes later requests much faster."
+        },
+        {
+          "id": "inside-the-data-center",
+          "type": "concept",
+          "title": "Inside the data center",
+          "body": "The request lands on a **load balancer**, which picks a healthy **app server**. The app server runs your code: it checks a **cache** for the data and falls back to the **database** on a miss. The response retraces the path. Browsers never reach the database directly; every request goes through code you control.",
+          "visual": {
+            "kind": "diagram",
+            "nodes": [
+              { "id": "c", "type": "client", "x": 8, "y": 50 },
+              { "id": "lb", "type": "lb", "x": 30, "y": 50 },
+              { "id": "a1", "type": "app", "x": 54, "y": 28 },
+              { "id": "a2", "type": "app", "x": 54, "y": 72 },
+              { "id": "ca", "type": "cache", "x": 84, "y": 24 },
+              { "id": "db", "type": "db_sql", "x": 84, "y": 74 }
+            ],
+            "edges": [["c", "lb", "HTTPS"], ["lb", "a1"], ["lb", "a2"], ["a1", "ca"], ["a2", "ca"], ["a1", "db"], ["a2", "db"]]
+          }
+        },
+        {
+          "id": "page-load-order",
+          "type": "order",
+          "prompt": "Put a first visit to `https://shop.example.com` in order.",
+          "items": [
+            "DNS resolves the name to an IP address",
+            "TCP and TLS handshakes",
+            "Browser sends the HTTP request",
+            "Load balancer forwards it to an app server",
+            "App server reads from the cache or database",
+            "Browser renders the response"
+          ],
+          "why": "You can't connect without an address, can't send HTTP without a connection, and can't render without a response. On the server side the request goes entry point → code → data, and the reply retraces the path."
+        },
+        {
+          "id": "wire-web-stack",
+          "type": "build",
+          "prompt": "Wire up `shop.example.com` so a browser's request can reach the product database.",
+          "context": "Start with the simplest stack that works. Add only what the request needs.",
+          "hint": "DNS only hands the browser an IP address. The connection itself goes to that IP: your load balancer.",
+          "palette": ["client", "dns", "lb", "app", "cache", "db_sql"],
+          "start": { "nodes": [{ "id": "c", "type": "client", "x": 8, "y": 50 }], "edges": [] },
+          "rules": {
+            "nodes": [
+              { "type": "lb", "why": "Gives browsers one stable address and spreads requests across servers." },
+              { "type": "app", "why": "Runs the code that turns a request into a page." },
+              { "type": "db", "why": "Holds the products the page shows." }
+            ],
+            "edges": [
+              { "from": "client", "to": "lb", "why": "After the DNS lookup, the browser connects straight to the load balancer's IP. DNS isn't in the request path." }
+            ],
+            "paths": [
+              { "through": ["client", "lb", "app", "db"], "why": "A request flows browser → load balancer → app server → database, and the response comes back the same way." }
+            ],
+            "forbidden": [
+              { "from": "client", "to": "db", "why": "Browsers never talk to the database: there'd be no access control, no business logic, and the credentials would be exposed." },
+              { "from": "client", "to": "app", "why": "Skipping the load balancer means it can't spread load or route around a failed server." }
+            ],
+            "connected": true,
+            "pass": 0.75
+          },
+          "solution": {
+            "nodes": [
+              { "id": "c", "type": "client", "x": 8, "y": 50 },
+              { "id": "d", "type": "dns", "x": 8, "y": 15 },
+              { "id": "lb", "type": "lb", "x": 32, "y": 50 },
+              { "id": "app", "type": "app", "x": 56, "y": 50 },
+              { "id": "db", "type": "db_sql", "x": 82, "y": 50 }
+            ],
+            "edges": [
+              { "from": "c", "to": "d" },
+              { "from": "c", "to": "lb" },
+              { "from": "lb", "to": "app" },
+              { "from": "app", "to": "db" }
+            ]
+          },
+          "why": "This is the backbone of almost every web system: DNS points at an entry point, a load balancer fronts the app servers, and only the app talks to storage. A cache is optional here; add one when reads need it."
+        }
+      ]
+    },
+    {
+      "id": "latency-and-throughput",
+      "title": "Latency and throughput",
+      "summary": "The numbers that bound every design, and why averages lie.",
+      "minutes": 9,
+      "steps": [
+        {
+          "id": "remote-ram-vs-disk",
+          "type": "choice",
+          "prompt": "Which is faster: reading a small value from another server's memory in the same data center, or one random read from a local spinning hard disk?",
+          "options": ["The other server's memory, over the network", "The local hard disk", "About the same"],
+          "answer": "The other server's memory, over the network",
+          "why": "A round trip inside a data center takes about 0.5 ms; a disk seek takes about 10 ms. The network hop is roughly 20× faster, which is why caches on separate machines pay off.",
+          "misconceptions": {
+            "The local hard disk": "Local feels faster, but a spinning disk must physically move its head: about 10 ms per seek, against about 0.5 ms for a round trip inside a data center.",
+            "About the same": "They differ by about 20×: roughly 0.5 ms for the network round trip versus 10 ms for a disk seek."
+          }
+        },
+        {
+          "id": "latency-numbers",
+          "type": "concept",
+          "title": "Latency numbers to know",
+          "body": "Rounded orders of magnitude, popularized by Jeff Dean; real hardware varies. Note the log scale: memory is ~100× slower than L1 cache, an SSD read ~1,000× slower than memory, and a disk seek ~20× a data-center round trip. A round trip between continents costs ~150 ms, bounded by the speed of light in fiber.",
+          "visual": {
+            "kind": "bars",
+            "unit": "ns",
+            "log": true,
+            "items": [
+              { "label": "L1 cache reference ≈ 1 ns", "value": 1 },
+              { "label": "Main memory reference ≈ 100 ns", "value": 100 },
+              { "label": "SSD random read ≈ 100 µs", "value": 100000 },
+              { "label": "Round trip in one data center ≈ 0.5 ms", "value": 500000 },
+              { "label": "Disk seek ≈ 10 ms", "value": 10000000 },
+              { "label": "Round trip between continents ≈ 150 ms", "value": 150000000 }
+            ]
+          }
+        },
+        {
+          "id": "match-latencies",
+          "type": "match",
+          "prompt": "Match each operation to its rough latency.",
+          "pairs": [
+            ["Main memory reference", "≈ 100 ns"],
+            ["SSD random read", "≈ 100 µs"],
+            ["Round trip within a data center", "≈ 0.5 ms"],
+            ["Spinning-disk seek", "≈ 10 ms"],
+            ["Round trip between continents", "≈ 150 ms"]
+          ],
+          "why": "Each rung of the ladder is one to three orders of magnitude above the last. Knowing it lets you judge a design at a glance: 50 disk seeks per request is already half a second."
+        },
+        {
+          "id": "latency-vs-throughput",
+          "type": "concept",
+          "title": "Latency vs throughput",
+          "body": "**Latency** is how long one request takes. **Throughput** is how many requests (or bytes) finish per second. Think of a highway: more lanes carry more cars, but no single trip gets faster. For a server, throughput ≈ requests in flight ÷ latency (Little's law).",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "Latency", "points": ["Time for one operation", "Measured in ms, as percentiles", "Cut it: cache, move closer, fewer round trips"] },
+            "right": { "title": "Throughput", "points": ["Work finished per second", "Measured in requests/sec or MB/s", "Raise it: more machines, parallelism, batching"] }
+          }
+        },
+        {
+          "id": "more-servers-latency",
+          "type": "choice",
+          "prompt": "An API runs on 2 servers at 1,000 requests/sec, and each request takes 50 ms. Traffic grows to 5,000 requests/sec and you scale to 10 identical servers. What happens to the time per request?",
+          "options": ["It stays about 50 ms", "It drops to about 10 ms", "It rises sharply, since there's 5× the traffic"],
+          "answer": "It stays about 50 ms",
+          "why": "More servers raise throughput, but each request still does the same work, so its latency doesn't change. To cut latency you need less work per request: caching, fewer round trips, or moving closer to users.",
+          "misconceptions": {
+            "It drops to about 10 ms": "Five times the servers gives five times the throughput, not a fifth of the latency: each request still does its 50 ms of work.",
+            "It rises sharply, since there's 5× the traffic": "It would if you hadn't scaled: requests queue once arrivals outpace capacity. With 5× the servers, each one sees the same load as before."
+          }
+        },
+        {
+          "id": "threads-throughput",
+          "type": "estimate",
+          "prompt": "A server has 100 worker threads, and each request holds a thread for 50 ms. What's its maximum throughput?",
+          "given": [
+            ["Worker threads", "100"],
+            ["Time each request holds a thread", "50 ms = 0.05 s"]
+          ],
+          "answer": 2000,
+          "unit": "requests/sec",
+          "tolerance": 0.3,
+          "solution": ["One thread: 1 ÷ 0.05 s = 20 requests/sec", "100 threads × 20 = 2,000 requests/sec"],
+          "why": "Throughput ≈ concurrency ÷ latency (Little's law). Halve the latency or double the threads and throughput doubles, until the CPU, database or network becomes the limit."
+        },
+        {
+          "id": "percentiles",
+          "type": "concept",
+          "title": "Percentiles: watch the tail",
+          "body": "Averages hide pain. Sort a minute of request times: **p50** is the median, and **p99** is the time 99% of requests beat. A healthy median can sit beside a terrible p99. Tails matter because one page often waits on many backend calls, and the users with the most data, often your best customers, hit them most.",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "40 ms", "label": "p50: half of requests are faster" },
+              { "value": "120 ms", "label": "p95: 1 in 20 is slower" },
+              { "value": "900 ms", "label": "p99: 1 in 100 is slower" }
+            ]
+          }
+        },
+        {
+          "id": "tail-fanout",
+          "type": "choice",
+          "prompt": "A page fans out to 100 backend calls in parallel and waits for all of them. Each call is slow (beyond its p99) 1% of the time. Roughly what share of page loads are slow?",
+          "options": ["About 1%", "About 10%", "About 63%", "Nearly 100%"],
+          "answer": "About 63%",
+          "why": "All 100 calls are fast with probability 0.99^100 ≈ 0.37, so about 63% of pages wait on at least one slow call. Fan-out turns a rare tail into the common case (Dean and Barroso, “The Tail at Scale”).",
+          "misconceptions": {
+            "About 1%": "That's the odds for one call. The page is slow if *any* of its 100 calls is slow.",
+            "About 10%": "The odds compound faster than that: a page is fast only if all 100 calls are, and 0.99^100 ≈ 0.37.",
+            "Nearly 100%": "Close, but 0.99^100 ≈ 0.37, so about a third of pages still get all-fast calls."
+          }
+        },
+        {
+          "id": "percentile-fill",
+          "type": "fill",
+          "text": "Half of requests finish faster than the [[p50]], and only [[1%]] take longer than the [[p99]]. Latency targets use percentiles because an [[average]] hides how slow the worst requests are.",
+          "bank": ["p50", "1%", "p99", "average", "p90", "10%"],
+          "why": "Percentiles describe the distribution users actually feel. A mean can look fine while 1 request in 100 takes seconds."
+        }
+      ]
+    },
+    {
+      "id": "scaling-up-vs-out",
+      "title": "Scaling up vs scaling out",
+      "summary": "Bigger machines or more machines, and what scaling out demands.",
+      "minutes": 9,
+      "steps": [
+        {
+          "id": "buy-time",
+          "type": "choice",
+          "prompt": "Your app runs on one server at 85% CPU, and traffic will double this year. What's the simplest change that buys time?",
+          "options": ["Move to a bigger server", "Split the app into microservices", "Shard the database", "Rewrite it in a faster language"],
+          "answer": "Move to a bigger server",
+          "why": "Scaling up needs no code changes, so it's the cheapest first step. It has a ceiling and leaves a single point of failure, though, so it buys time rather than solving growth.",
+          "misconceptions": {
+            "Split the app into microservices": "Microservices split code by team and domain. They add network hops and operational work; they don't add capacity by themselves.",
+            "Shard the database": "The bottleneck here is the app server's CPU, not the database. Sharding is powerful but complex; save it for when data outgrows one machine.",
+            "Rewrite it in a faster language": "A rewrite takes months and carries real risk. A bigger machine takes minutes."
+          }
+        },
+        {
+          "id": "up-or-out",
+          "type": "concept",
+          "title": "Up or out",
+          "body": "**Scaling up** (vertical) means a bigger machine. It needs no code changes, but it hits a ceiling (the largest cloud machines top out at hundreds of cores), prices climb steeply near the top, and it's still one box. **Scaling out** (horizontal) means more machines: no hard ceiling, and one can fail without an outage.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "Scale up (vertical)", "points": ["Bigger CPU, more RAM, faster disk", "No code changes", "Hard ceiling; premium prices at the top", "Still one machine: one failure is an outage"] },
+            "right": { "title": "Scale out (horizontal)", "points": ["More machines share the load", "Room to keep growing", "One machine can fail without an outage", "Needs a load balancer and stateless servers"] }
+          }
+        },
+        {
+          "id": "up-or-out-sort",
+          "type": "sort",
+          "prompt": "Scaling up or scaling out?",
+          "buckets": ["Scaling up", "Scaling out"],
+          "items": [
+            { "text": "Upgrade the database server from 64 GB to 512 GB of RAM", "bucket": "Scaling up" },
+            { "text": "Add six more web servers behind the load balancer", "bucket": "Scaling out" },
+            { "text": "Replace spinning disks with NVMe SSDs", "bucket": "Scaling up" },
+            { "text": "Split users across 8 database shards", "bucket": "Scaling out", "why": "Each shard is a separate machine holding part of the data." },
+            { "text": "Move to a 96-core instance", "bucket": "Scaling up" },
+            { "text": "Add worker machines to drain a backlog of jobs", "bucket": "Scaling out" }
+          ],
+          "why": "Scaling up makes one machine bigger or faster. Scaling out adds machines and splits the work between them."
+        },
+        {
+          "id": "stateless-servers",
+          "type": "concept",
+          "title": "Stateless servers",
+          "body": "Scaling out works only if any server can handle any request. So keep app servers **stateless**: no sessions or uploads in local memory or disk. Put sessions in a shared store such as Redis, records in the database, files in object storage. Then the load balancer can route anywhere, and servers can be added, replaced or crash without users noticing.",
+          "visual": {
+            "kind": "diagram",
+            "nodes": [
+              { "id": "c", "type": "client", "x": 8, "y": 50 },
+              { "id": "lb", "type": "lb", "x": 28, "y": 50 },
+              { "id": "a1", "type": "app", "x": 52, "y": 18 },
+              { "id": "a2", "type": "app", "x": 52, "y": 50 },
+              { "id": "a3", "type": "app", "x": 52, "y": 82 },
+              { "id": "s", "type": "cache", "x": 84, "y": 28, "label": "Session store" },
+              { "id": "db", "type": "db_sql", "x": 84, "y": 74 }
+            ],
+            "edges": [["c", "lb"], ["lb", "a1"], ["lb", "a2"], ["lb", "a3"], ["a1", "s"], ["a2", "s"], ["a3", "s"], ["a1", "db"], ["a2", "db"], ["a3", "db"]]
+          }
+        },
+        {
+          "id": "sticky-sessions",
+          "type": "choice",
+          "prompt": "A team keeps sessions in each server's memory and turns on **sticky sessions**, so the load balancer always sends a user back to the same server. What's the main risk?",
+          "options": [
+            "When that server dies, its users lose their sessions",
+            "Every request gets noticeably slower",
+            "The load balancer can no longer health-check servers",
+            "Users have to log in on every request"
+          ],
+          "answer": "When that server dies, its users lose their sessions",
+          "why": "Stickiness ties users to one machine, so a crash or a deploy logs them out, and load piles up unevenly on servers that hold heavy users. A shared session store avoids both.",
+          "misconceptions": {
+            "Every request gets noticeably slower": "Routing by cookie or IP hash is cheap. The cost shows up on failures and uneven load, not speed.",
+            "The load balancer can no longer health-check servers": "Health checks still work. The problem is what happens to the users pinned to the server that fails.",
+            "Users have to log in on every request": "That's what happens with local sessions and *no* stickiness. Sticky sessions are the workaround, with their own risk."
+          }
+        },
+        {
+          "id": "why-stateless",
+          "type": "text",
+          "prompt": "In two or three sentences: why do we keep app servers stateless when we scale out?",
+          "concepts": [
+            {
+              "label": "Any server can handle any request",
+              "any": [
+                "interchangeab*",
+                "re:\\bany (one |single )?(app |web )?(server|instance|machine|node|box)",
+                "route anywhere",
+                "whichever server",
+                "re:matter[s]? which (server|instance|machine|node)",
+                "identical server"
+              ]
+            },
+            {
+              "label": "Servers can be added or removed freely",
+              "any": ["add* server", "add* instance", "remov* server", "scal* horizontal*", "re:scal(e|es|ed|ing)[ -]?out", "autoscal*"]
+            },
+            {
+              "label": "A server failing loses no user state",
+              "any": ["crash* los*", "fail* los*", "die* los*", "without los*", "los* session", "fail* notic*"]
+            },
+            {
+              "label": "State lives in a shared store",
+              "any": ["shared", "external* store", "session store", "redis", "memcache*", "database"]
+            }
+          ],
+          "pass": 3,
+          "model": "Stateless servers keep no session data locally; sessions live in a shared store like Redis. That makes servers interchangeable, so the load balancer can send any request to any server. We can add or remove servers freely to scale out, and if one crashes, users lose nothing.",
+          "why": "Statelessness is what makes servers disposable: state lives in shared stores, so the pool can grow, shrink or lose a member without anyone noticing."
+        },
+        {
+          "id": "single-points-of-failure",
+          "type": "concept",
+          "title": "Single points of failure",
+          "body": "A **single point of failure** (SPOF) is any component whose loss takes the whole system down. One server is a SPOF however big it is. Redundancy removes it: several app servers behind a load balancer, a standby for the load balancer itself, a replica ready to replace the database. For every box, ask: what if this dies?",
+          "visual": {
+            "kind": "diagram",
+            "nodes": [
+              { "id": "c", "type": "client", "x": 6, "y": 50 },
+              { "id": "lb1", "type": "lb", "x": 28, "y": 32, "label": "Active" },
+              { "id": "lb2", "type": "lb", "x": 28, "y": 72, "label": "Standby" },
+              { "id": "a1", "type": "app", "x": 54, "y": 20 },
+              { "id": "a2", "type": "app", "x": 54, "y": 50 },
+              { "id": "a3", "type": "app", "x": 54, "y": 80 },
+              { "id": "db", "type": "db_sql", "x": 84, "y": 34, "label": "Primary" },
+              { "id": "r", "type": "replica", "x": 84, "y": 72, "label": "Replica" }
+            ],
+            "edges": [["c", "lb1"], ["lb1", "lb2", "failover"], ["lb1", "a1"], ["lb1", "a2"], ["lb1", "a3"], ["a1", "db"], ["a2", "db"], ["a3", "db"], ["db", "r", "replication"]]
+          }
+        },
+        {
+          "id": "find-spof",
+          "type": "choice",
+          "prompt": "A design has two load balancers (one active, one standby), four stateless app servers, and one database. Which component is a single point of failure?",
+          "options": ["The database", "The active load balancer", "Any one of the app servers", "None: it's fully redundant"],
+          "answer": "The database",
+          "why": "Every other layer has a spare: the standby load balancer takes over, and three app servers absorb the fourth's traffic. There's only one database, so when it goes down every request that needs data fails.",
+          "misconceptions": {
+            "The active load balancer": "If it dies, the standby takes over its address (failover). Users see a blip, not an outage.",
+            "Any one of the app servers": "The load balancer's health checks stop sending traffic to a dead server, and the other three carry on.",
+            "None: it's fully redundant": "Check every box: there's only one database."
+          }
+        },
+        {
+          "id": "scale-out-build",
+          "type": "build",
+          "prompt": "Your single app server keeps falling over. Redesign so that any one app server can fail without an outage.",
+          "hint": "Clients need one stable address in front of the pool, and state has to live somewhere every server can reach.",
+          "palette": ["client", "lb", "app", "cache", "db_sql", "db_nosql", "object_store"],
+          "start": { "nodes": [{ "id": "c", "type": "client", "x": 8, "y": 50 }], "edges": [] },
+          "rules": {
+            "nodes": [
+              { "type": "lb", "why": "Clients need one address, and something must stop sending traffic to a dead server." },
+              { "type": "app", "min": 2, "why": "With two or more servers, one can fail or be redeployed while the rest keep serving." },
+              { "type": "db", "why": "Shared data lives outside the app servers, so every server sees the same state." }
+            ],
+            "paths": [
+              { "through": ["client", "lb", "app", "db"], "why": "Requests reach the data through the load balancer and an app server." }
+            ],
+            "forbidden": [
+              { "from": "client", "to": "db", "why": "Clients never talk to the database directly; only your code does." },
+              { "from": "client", "to": "app", "why": "A client wired straight to one server is stuck when that server dies, and it bypasses the load balancer's health checks." }
+            ],
+            "connected": true,
+            "pass": 0.75
+          },
+          "solution": {
+            "nodes": [
+              { "id": "c", "type": "client", "x": 8, "y": 50 },
+              { "id": "lb", "type": "lb", "x": 30, "y": 50 },
+              { "id": "a1", "type": "app", "x": 54, "y": 28 },
+              { "id": "a2", "type": "app", "x": 54, "y": 72 },
+              { "id": "s", "type": "cache", "x": 82, "y": 26, "label": "Session store" },
+              { "id": "db", "type": "db_sql", "x": 82, "y": 72 }
+            ],
+            "edges": [
+              { "from": "c", "to": "lb" },
+              { "from": "lb", "to": "a1" },
+              { "from": "lb", "to": "a2" },
+              { "from": "a1", "to": "s" },
+              { "from": "a2", "to": "s" },
+              { "from": "a1", "to": "db" },
+              { "from": "a2", "to": "db" }
+            ]
+          },
+          "why": "Two stateless servers behind a load balancer, with state in shared stores, survive losing either server. The single database is still a point of failure; replication, later in the course, fixes that."
+        }
+      ]
+    }
+  ]
+}

@@ -1,11 +1,14 @@
-// Settings: the learner owns their goal, pace, and how much scaffolding they
-// get. Each option says what it does and why, so choices are informed.
+// Settings: the learner owns their goal, their games, and how much
+// scaffolding they get. Each option says what it does and why.
 
 import { h } from "../../lib/dom.js";
 import { button, card, pageHead, segmented } from "../components.js";
-import { settings, persist, resetProgress, progressFilePath, DEFAULT_SETTINGS } from "../../state/progress.js";
+import { settings, persist, progress, resetProgress, progressFilePath, DEFAULT_SETTINGS } from "../../state/progress.js";
 import { setThemePreference, themePreference } from "../theme.js";
-import { refresh } from "../router.js";
+import { setSoundEnabled, play as sound } from "../../lib/sound.js";
+import { DAILY_GOALS } from "../../domain/games.js";
+import { openCoursesFolder } from "../../io/io.js";
+import { navigate, refresh } from "../router.js";
 import { toast } from "../toast.js";
 
 export function renderSettings(root) {
@@ -17,55 +20,61 @@ export function renderSettings(root) {
     current[key] = value;
     persist();
   };
-
   const row = (label, help, control) =>
     h("div", { class: "setting" }, h("div", { class: "setting-text" }, h("strong", { text: label }), h("p", { class: "muted small", text: help })), h("div", { class: "setting-control" }, control));
 
-  const numberOptions = (values, suffix = "") => values.map((value) => ({ value, label: `${value}${suffix}` }));
-
   const pathLine = h("p", { class: "muted small mono" });
   progressFilePath().then((path) => {
-    pathLine.textContent = path ? `Saved to ${path}` : "Saved in this browser's storage.";
+    pathLine.textContent = path ? `Progress is saved to ${path}` : "Progress is saved in this browser's storage.";
   });
 
   page.append(
     pageHead({ eyebrow: "Preferences", title: "Settings" }),
     card(
       { title: "Your pace" },
-      row("Daily goal", "Cards per day. Small and consistent beats big and occasional — your streak counts days you hit this.", segmented(numberOptions([5, 10, 15, 20, 30]), current.dailyGoal, update("dailyGoal"), { label: "Daily goal" })),
-      row("Session length", "Cards per session. Shorter sessions with a clear end are easier to start.", segmented(numberOptions([6, 12, 20, 30]), current.sessionSize, update("sessionSize"), { label: "Session length" })),
-      row("New items per day", "How much new material enters your reviews each day. Every new item becomes future reviews.", segmented(numberOptions([0, 5, 10, 15, 25]), current.newPerDay, update("newPerDay"), { label: "New items per day" })),
-      row("Review cap", "Most reviews per day. After a break, the backlog spreads over several days instead of landing at once.", segmented(numberOptions([40, 80, 150, 300]), current.maxReviewsPerDay, update("maxReviewsPerDay"), { label: "Review cap" }))
+      row("Daily goal", "XP per day. Your streak counts the days you reach it.", segmented(DAILY_GOALS.map((goal) => ({ value: goal.xp, label: `${goal.label} · ${goal.xp}` })), current.dailyXp, update("dailyXp"), { label: "Daily goal" })),
+      row("Games", "Choose which ways of learning appear on Home.", button("Choose games", { size: "sm", onClick: () => navigate("practice") })),
+      row("Redo setup", "Walk through the first-run questions again.", button("Restart setup", { size: "sm", variant: "ghost", onClick: () => { progress().profile.onboarded = false; persist(); navigate("welcome"); } }))
     ),
     card(
       { title: "Learning" },
       row(
-        "Target retention",
-        "Reviews are scheduled for when your recall chance drops to this. Higher means more reviews, with each one easier.",
-        segmented([{ value: 0.85, label: "85%" }, { value: 0.9, label: "90%" }, { value: 0.95, label: "95%" }], current.retention, update("retention"), { label: "Target retention" })
+        "Confidence in lessons",
+        "Rate how sure you are before each answer in lessons too, not just in reviews. Builds calibration and flags confident mistakes.",
+        segmented([{ value: false, label: "Reviews only" }, { value: true, label: "Everywhere" }], current.confidenceInLessons, update("confidenceInLessons"), { label: "Confidence ratings" })
       ),
       row(
         "Recall before options",
-        "Hide multiple-choice options until you've tried to recall the answer. Producing an answer builds stronger memory than recognizing one.",
+        "In reviews, hide multiple-choice options until you've tried to recall the answer. Producing an answer builds stronger memory than recognizing one.",
         segmented([{ value: "off", label: "Off" }, { value: "seen", label: "After first look" }, { value: "always", label: "Always" }], current.recallFirst, update("recallFirst"), { label: "Recall before options" })
       ),
       row(
         "Explain-why prompts",
-        "After a correct answer, ask you to explain why before showing the expert explanation. Only for items that have one.",
+        "After some correct answers, explain why before seeing the explanation.",
         segmented([{ value: "off", label: "Off" }, { value: "sometimes", label: "Sometimes" }, { value: "always", label: "Always" }], current.selfExplain, update("selfExplain"), { label: "Explain-why prompts" })
       ),
+      row("Target retention", "Reviews are scheduled for when your recall chance drops to this. Higher means more reviews, each easier.", segmented([{ value: 0.85, label: "85%" }, { value: 0.9, label: "90%" }, { value: 0.95, label: "95%" }], current.retention, update("retention"), { label: "Target retention" })),
+      row("Review session length", "Cards per daily review.", segmented([6, 12, 20, 30].map((value) => ({ value, label: String(value) })), current.sessionSize, update("sessionSize"), { label: "Review length" })),
+      row("Written answers in review", "Include explain-in-your-own-words cards in reviews. Slower, but the strongest retrieval.", segmented([{ value: true, label: "Include" }, { value: false, label: "Skip" }], current.includeLongForm, update("includeLongForm"), { label: "Written answers" }))
+    ),
+    card(
+      { title: "Look and sound" },
+      row("Theme", "Follows your system unless you pick one.", segmented([{ value: "system", label: "System" }, { value: "light", label: "Light" }, { value: "dark", label: "Dark" }], themePreference(), (value) => setThemePreference(value), { label: "Theme" })),
       row(
-        "Long-form items in sessions",
-        "Include essay and code questions in spaced practice. They take longer but are the strongest retrieval.",
-        segmented([{ value: true, label: "Include" }, { value: false, label: "Skip" }], current.includeLongForm, update("includeLongForm"), { label: "Long-form items" })
+        "Sound effects",
+        "Short cues for right and wrong answers.",
+        segmented([{ value: true, label: "On" }, { value: false, label: "Off" }], current.sound, (value) => {
+          update("sound")(value);
+          setSoundEnabled(value);
+          if (value) {
+            sound("correct");
+          }
+        }, { label: "Sound effects" })
       )
     ),
     card(
-      { title: "Appearance" },
-      row("Theme", "Follows your system unless you pick one.", segmented([{ value: "system", label: "System" }, { value: "light", label: "Light" }, { value: "dark", label: "Dark" }], themePreference(), (value) => setThemePreference(value), { label: "Theme" }))
-    ),
-    card(
-      { title: "Your data" },
+      { title: "Courses and data" },
+      row("Courses folder", "Course files here load automatically on every launch.", button("Open folder", { size: "sm", onClick: openCoursesFolder })),
       pathLine,
       h(
         "div",
@@ -81,9 +90,9 @@ export function renderSettings(root) {
         button("Reset learning progress…", {
           variant: "danger",
           onClick: () => {
-            if (window.confirm("Erase all reviews, mistakes, streaks, and points? Your libraries and settings stay. This can't be undone.")) {
-              resetProgress({ keepLibraries: true });
-              toast("Progress reset. Libraries kept.");
+            if (window.confirm("Erase all lesson progress, reviews, mistakes, streaks, and XP? Your courses and settings stay. This can't be undone.")) {
+              resetProgress();
+              toast("Progress reset.");
               refresh();
             }
           }

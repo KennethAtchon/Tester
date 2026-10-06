@@ -1,37 +1,53 @@
-// IO controllers: bridge the preload file API to the learner catalog. Loading
-// a library enrolls it (its JSON is kept with your progress so reviews can be
-// scheduled across launches); re-loading the same library refreshes it.
+// Getting courses in and results out. Adding a course is one step from any
+// of three places — the file picker, a file dropped anywhere on the window,
+// or pasted text — and every path ends in the same importCourse call.
 
-import { enrollLibrary } from "../state/catalog.js";
-import { progress } from "../state/progress.js";
+import { importCourse } from "../state/catalog.js";
 import { toast } from "../ui/toast.js";
 import { plural } from "../ui/components.js";
 
-export async function listExamples() {
+export async function importFromDialog() {
   try {
-    return await window.testFiles.listExamples();
-  } catch {
-    return [];
+    const result = await window.testFiles.openCourseFile();
+    return result.canceled ? null : importText(result.content, baseName(result.filePath));
+  } catch (error) {
+    toast(error.message, { tone: "error", timeout: 7000 });
+    return null;
   }
 }
 
-export function enrolledFileNames() {
-  return new Set(Object.values(progress().libraries).map((record) => record.fileName).filter(Boolean));
+export async function importFiles(files) {
+  let last = null;
+  for (const file of files) {
+    if (!/\.(json|txt|md|markdown)$/i.test(file.name)) {
+      toast(`${file.name}: drop a .json, .txt, or .md file.`, { tone: "error" });
+      continue;
+    }
+    last = importText(await file.text(), file.name) || last;
+  }
+  return last;
 }
 
-export async function importFromDisk() {
-  return guard(async () => {
-    const result = await window.testFiles.openJson();
-    return result.canceled ? null : enroll(result);
-  });
+export function importText(text, fileName = "") {
+  try {
+    const { course, isNew, warnings } = importCourse(text, fileName);
+    const lessons = course.lessonKeys.length;
+    const projects = course.projectKeys.length;
+    const parts = [lessons && plural(lessons, "lesson"), projects && plural(projects, "project")].filter(Boolean).join(" · ");
+    toast(`${isNew ? "Added" : "Updated"} “${course.title}” — ${parts}${warnings.length ? ` (${plural(warnings.length, "step")} skipped)` : ""}`, { tone: "success", timeout: 5000 });
+    return course;
+  } catch (error) {
+    toast(error.message, { tone: "error", timeout: 7000 });
+    return null;
+  }
 }
 
-export async function importSample() {
-  return guard(async () => enroll(await window.testFiles.openSample()));
-}
-
-export async function importExample(fileName) {
-  return guard(async () => enroll(await window.testFiles.openExample(fileName)));
+export async function openCoursesFolder() {
+  try {
+    await window.testFiles.openCoursesFolder();
+  } catch (error) {
+    toast(error.message, { tone: "error" });
+  }
 }
 
 export async function copyText(text, successMessage) {
@@ -54,26 +70,6 @@ export async function saveMarkdownFile(payload) {
   }
 }
 
-function enroll(result) {
-  let raw;
-  try {
-    raw = JSON.parse(result.content);
-  } catch (error) {
-    toast(`That file isn't valid JSON: ${error.message}`, { tone: "error", timeout: 7000 });
-    return null;
-  }
-  const fileName = String(result.filePath || "").split(/[\\/]/).pop();
-  const { key, isNew, library } = enrollLibrary(raw, { sourcePath: result.filePath, fileName });
-  const itemCount = library.tests.reduce((sum, test) => sum + test.questions.length, 0);
-  toast(`${isNew ? "Added" : "Refreshed"} “${library.title}” · ${plural(library.tests.length, "skill")} · ${plural(itemCount, "item")}`, { tone: "success" });
-  return key;
-}
-
-async function guard(work) {
-  try {
-    return await work();
-  } catch (error) {
-    toast(error.message, { tone: "error", timeout: 7000 });
-    return null;
-  }
+function baseName(filePath) {
+  return String(filePath || "").split(/[\\/]/).pop();
 }

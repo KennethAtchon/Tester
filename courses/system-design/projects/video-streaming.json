@@ -1,0 +1,395 @@
+{
+  "id": "video-streaming",
+  "title": "Design a Video Streaming Platform",
+  "summary": "Upload once, stream everywhere at a terabyte a second.",
+  "difficulty": "Advanced",
+  "minutes": 40,
+  "brief": "You're building a YouTube-style video platform. Creators upload **500K videos a day**, averaging **300 MB** each as raw files. Viewers start **1B plays a day**, and an average play streams about **100 MB**. Playback must start in under 2 seconds and adapt to each viewer's bandwidth, and a new upload should be watchable within minutes. Live streaming, comments, and recommendations are out of scope.",
+  "stages": [
+    {
+      "id": "requirements",
+      "title": "Requirements",
+      "steps": [
+        {
+          "id": "video-scope",
+          "type": "sort",
+          "prompt": "Sort each item: functional, non-functional, or out of scope for v1?",
+          "buckets": ["Functional", "Non-functional", "Out of scope"],
+          "items": [
+            { "text": "Creators upload video files of up to a few GB", "bucket": "Functional" },
+            { "text": "Viewers watch at a quality that adapts to their bandwidth", "bucket": "Functional" },
+            { "text": "The watch page shows the title, creator and view count", "bucket": "Functional" },
+            { "text": "Playback starts within 2 seconds", "bucket": "Non-functional" },
+            { "text": "An uploaded video is never lost", "bucket": "Non-functional", "why": "Durability is a guarantee about how well uploads are kept, not a new feature." },
+            { "text": "A new upload is watchable within minutes", "bucket": "Non-functional", "why": "It's a freshness target for the processing pipeline: how fast, not what." },
+            { "text": "Live streaming", "bucket": "Out of scope", "why": "Live needs real-time ingest and low-latency packaging, a different pipeline, and the brief rules it out." },
+            { "text": "Personalized recommendations", "bucket": "Out of scope" }
+          ],
+          "why": "Functional = what users can do. Non-functional = how fast, durable and available it must be. Out of scope = what the brief explicitly defers."
+        },
+        {
+          "id": "video-core",
+          "type": "choice",
+          "prompt": "Which features are core for v1? Pick all that apply.",
+          "options": ["Upload a video", "Playback that adapts to bandwidth", "View counts", "Live streaming", "Comments", "Personalized recommendations"],
+          "answer": ["Upload a video", "Playback that adapts to bandwidth", "View counts"],
+          "why": "These are the three flows the brief asks for, and each stresses a different part of the system: upload stresses ingest, playback stresses egress, and view counts stress write aggregation.",
+          "misconceptions": {
+            "Live streaming": "Live is a separate pipeline (real-time ingest, low-latency packaging), and the brief rules it out.",
+            "Comments": "Out of scope per the brief. It's ordinary CRUD that wouldn't change the core design anyway.",
+            "Personalized recommendations": "A whole ML system of its own, and the brief defers it."
+          }
+        },
+        {
+          "id": "video-requirements-recap",
+          "type": "concept",
+          "title": "What we agreed",
+          "body": "**Functional:** upload videos, watch at a quality that adapts to bandwidth, see the title, creator and view count.\n\n**Non-functional:** playback starts in under 2 s, uploads are never lost, new uploads are watchable within minutes, highly available.\n\n**Scale:** 500K uploads/day at ~300 MB raw; 1B plays/day at ~100 MB each.",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "500K", "label": "uploads per day" },
+              { "value": "1B", "label": "plays per day" },
+              { "value": "100 MB", "label": "streamed per play" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "estimation",
+      "title": "Estimation",
+      "steps": [
+        {
+          "id": "video-ingest",
+          "type": "estimate",
+          "prompt": "How much raw video arrives per day?",
+          "given": [["Uploads per day", "500K"], ["Average raw file", "300 MB"]],
+          "answer": 150,
+          "unit": "TB/day",
+          "tolerance": 0.3,
+          "solution": ["500K × 300 MB = 150M MB", "150M MB = 150 TB/day"],
+          "why": "That's about 1.5 GB/s of uploads, all of which must land durably before processing. The transcoded renditions add more storage on top."
+        },
+        {
+          "id": "video-egress-day",
+          "type": "estimate",
+          "prompt": "How much data do viewers stream per day?",
+          "given": [["Plays per day", "1B"], ["Average data streamed per play", "100 MB"]],
+          "answer": 100,
+          "unit": "PB/day",
+          "tolerance": 0.3,
+          "solution": ["1B × 100 MB = 100B MB", "100B MB = 100 PB/day"],
+          "why": "Egress is roughly 700× ingest (100 PB out vs 150 TB in). This system is defined by how it *serves* bytes, not how it stores them."
+        },
+        {
+          "id": "video-egress-bw",
+          "type": "estimate",
+          "prompt": "What's the average egress bandwidth?",
+          "given": [["Streamed per day", "100 PB (from the last step)"], ["Seconds per day", "≈ 100K (86,400)"]],
+          "answer": 1000,
+          "unit": "GB/s",
+          "tolerance": 0.3,
+          "solution": ["100 PB = 100,000 TB", "100,000 TB ÷ 100K s = 1 TB/s = 1,000 GB/s (≈ 8 Tbps, more at the evening peak)"],
+          "why": "No single origin can push 8 Tbps. It has to come from thousands of CDN edge servers close to viewers."
+        },
+        {
+          "id": "video-cdn-cost",
+          "type": "estimate",
+          "prompt": "At $0.02 per GB of CDN egress, what does a day of streaming cost?",
+          "given": [["Streamed per day", "100 PB = 100M GB"], ["CDN price", "$0.02 per GB"]],
+          "answer": 2000000,
+          "unit": "$/day",
+          "tolerance": 0.3,
+          "solution": ["100M GB × $0.02 = $2M per day", "≈ $730M per year"],
+          "why": "Serving bytes dwarfs the cost of storage and compute, which is why large platforms invest in better codecs and in caches inside ISP networks."
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "title": "API",
+      "steps": [
+        {
+          "id": "video-api",
+          "type": "api",
+          "prompt": "Design the HTTP API the apps call. Video bytes never pass through it: uploads go straight to object storage and playback comes from the CDN.",
+          "endpoints": [
+            {
+              "purpose": "Start an upload: create the video record and get pre-signed upload URL(s)",
+              "method": "POST",
+              "path": ["/videos", "/uploads", "/videos/uploads", "/videos/upload", "/upload", "/videos/upload-url", "/upload-url", "/upload-urls"]
+            },
+            {
+              "purpose": "Tell the server the upload has finished so processing can start",
+              "method": ["POST", "PUT", "PATCH"],
+              "path": ["/videos/{id}/complete", "/uploads/{id}/complete", "/videos/{id}/upload-complete", "/videos/{id}/finalize", "/uploads/{id}/finalize", "/videos/{id}/finish", "/videos/{id}/publish", "/videos/{id}/process", "/videos/{id}/transcode", "/videos/{id}", "/uploads/{id}"]
+            },
+            {
+              "purpose": "Load the watch page: title, creator, view count and the manifest URL",
+              "method": "GET",
+              "path": ["/videos/{id}", "/videos/{id}/metadata", "/videos/{id}/details", "/videos/{id}/manifest", "/videos/{id}/play", "/videos/{id}/playback", "/watch/{id}"]
+            },
+            {
+              "purpose": "Report that a viewer started watching (for view counts)",
+              "method": "POST",
+              "path": ["/videos/{id}/views", "/videos/{id}/view", "/videos/{id}/plays", "/videos/{id}/events", "/views", "/plays", "/events", "/views/{id}", "/analytics/views"]
+            }
+          ],
+          "why": "The API only handles small, metadata-sized requests. It hands out pre-signed URLs for the heavy upload and a manifest URL for playback, so the 150 TB/day coming in and 100 PB/day going out bypass the API servers. A storage \"upload finished\" event can replace the complete call."
+        },
+        {
+          "id": "video-segment-source",
+          "type": "choice",
+          "prompt": "The player has loaded the manifest. Where should it fetch the video segments from?",
+          "options": [
+            "The nearest CDN edge, using the segment URLs in the manifest",
+            "The API servers, which read each segment from object storage and stream it back",
+            "Object storage directly, with a pre-signed URL for each segment",
+            "A WebSocket the server pushes segments down as fast as it can"
+          ],
+          "answer": "The nearest CDN edge, using the segment URLs in the manifest",
+          "why": "Segments are immutable static files, ideal CDN content. Edges near viewers serve popular segments from cache and pull a miss once from object storage (the origin).",
+          "misconceptions": {
+            "The API servers, which read each segment from object storage and stream it back": "That routes 1 TB/s through your app tier, which needs a huge fleet, adds a hop, and does nothing for viewers far from your data center.",
+            "Object storage directly, with a pre-signed URL for each segment": "It works, but every play comes from one region, with higher latency, higher per-GB egress prices, and no edge caching for popular videos.",
+            "A WebSocket the server pushes segments down as fast as it can": "Adaptive bitrate needs the *player* to pull each segment when its buffer needs it, choosing the quality each time. Plain HTTP GETs are also what CDNs cache."
+          }
+        }
+      ]
+    },
+    {
+      "id": "data",
+      "title": "Data model",
+      "steps": [
+        {
+          "id": "video-metadata-store",
+          "type": "choice",
+          "prompt": "Where should video metadata (title, creator, processing status, rendition list, view count) live?",
+          "options": [
+            "A relational database such as MySQL or Postgres, with a cache in front, sharded by video_id when it outgrows one primary",
+            "A wide-column store, because video platforms are big data",
+            "A JSON file in object storage next to each video's segments",
+            "Only in the CDN, since that's where viewers fetch from"
+          ],
+          "answer": "A relational database such as MySQL or Postgres, with a cache in front, sharded by video_id when it outgrows one primary",
+          "why": "Metadata is small, relational and read-heavy: a cache absorbs the hot reads and SQL gives indexes and transactions. YouTube ran its metadata on MySQL, and built Vitess to shard it.",
+          "misconceptions": {
+            "A wide-column store, because video platforms are big data": "The *videos* are big; their metadata isn't. 500K rows/day at ~1 KB is ~0.5 GB/day, easy for SQL, which also gives you secondary indexes for queries like \"this creator's videos\".",
+            "A JSON file in object storage next to each video's segments": "You can't query it (list a creator's videos, filter by status) or update fields atomically. Keep the bytes in object storage and the facts in a database.",
+            "Only in the CDN, since that's where viewers fetch from": "A CDN is a cache that can evict anything at any time, not a source of truth."
+          }
+        },
+        {
+          "id": "video-where-it-lives",
+          "type": "sort",
+          "prompt": "Where does each piece of data live?",
+          "buckets": ["Object storage", "SQL metadata DB", "Cache", "Event stream"],
+          "items": [
+            { "text": "The raw 300 MB upload", "bucket": "Object storage" },
+            { "text": "4-second segments of the 720p rendition", "bucket": "Object storage" },
+            { "text": "The HLS manifest (.m3u8)", "bucket": "Object storage", "why": "Manifests are small files that live next to the segments and are served through the CDN the same way." },
+            { "text": "Title, description and creator_id", "bucket": "SQL metadata DB" },
+            { "text": "Processing status: uploading, processing or ready", "bucket": "SQL metadata DB" },
+            { "text": "Metadata for today's most-watched videos", "bucket": "Cache" },
+            { "text": "Each individual \"play started\" event", "bucket": "Event stream", "why": "About 10K events/sec belong in an append-only log that a stream processor rolls up, not in individual database rows." }
+          ],
+          "why": "Big immutable bytes go in object storage, small mutable facts go in SQL, hot reads go in the cache, and high-volume events go in a stream to be aggregated."
+        },
+        {
+          "id": "video-immutable-fill",
+          "type": "fill",
+          "text": "Each segment is written once under a key like `videos/{id}/720p/seg_00042.ts` and [[never changes]], so the CDN can cache it with a [[long TTL|very long TTL]] and never has to [[invalidate|purge]] it. Data that does change, such as the title or view count, lives in the [[metadata DB|SQL database|database]] and is served through the API.",
+          "bank": ["never changes", "long TTL", "invalidate", "metadata DB", "short TTL", "is overwritten", "object storage"],
+          "why": "Immutable keys are the cheapest way to get high CDN hit rates, because nothing ever goes stale. If a video is re-encoded, write new keys and point a new manifest at them."
+        }
+      ]
+    },
+    {
+      "id": "design",
+      "title": "High-level design",
+      "steps": [
+        {
+          "id": "video-hld-framing",
+          "type": "concept",
+          "title": "Three flows, three loads",
+          "body": "- **Upload:** 150 TB/day goes straight into object storage through pre-signed URLs.\n- **Processing:** each upload becomes transcoding jobs on a queue, run by a pool of workers.\n- **Playback:** ~1 TB/s of segments, almost all from the CDN.\n\nThe API servers only handle small metadata requests. Never put video bytes through them.",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "1.5 GB/s", "label": "uploads in" },
+              { "value": "1 TB/s", "label": "segments out" },
+              { "value": "$2M/day", "label": "CDN egress" }
+            ]
+          }
+        },
+        {
+          "id": "video-hld",
+          "type": "build",
+          "prompt": "Draw the platform: direct uploads, a transcoding pipeline, CDN playback, metadata behind a cache, and view counts that don't hammer the database. Label your components.",
+          "hint": "Trace the bytes separately from the metadata: where does a raw upload land, who turns it into segments, and where does a player fetch them from?",
+          "palette": ["client", "cdn", "lb", "app", "object_store", "queue", "worker", "db_sql", "db_nosql", "cache", "stream", "ws"],
+          "start": { "nodes": [{ "id": "c", "type": "client", "x": 8, "y": 50 }], "edges": [] },
+          "rules": {
+            "nodes": [
+              { "type": "cdn", "why": "~1 TB/s of egress (8 Tbps) can only come from edge servers spread close to viewers; no origin fleet can push it." }
+            ],
+            "edges": [
+              { "from": "client", "to": "object_store", "why": "The app uploads straight to object storage with a pre-signed URL, so 150 TB/day never passes through your servers." },
+              { "from": "client", "to": "cdn", "why": "Players fetch segments from the nearest CDN edge, which serves popular segments from cache." },
+              { "from": "cdn", "to": "object_store", "why": "Object storage is the CDN's origin: a cache miss pulls a segment once, then the edge serves it from cache." },
+              { "from": "cache", "to": "compute", "why": "A popular video's metadata is read millions of times; the cache absorbs those reads before they reach SQL." }
+            ],
+            "paths": [
+              { "through": ["queue", "worker", "object_store"], "why": "Each upload becomes transcoding jobs on a queue; a pool of transcoders pulls them (retrying failures), reads the raw file and writes every rendition's segments and manifests back to storage." },
+              { "through": ["client", "entry", "compute", "db_sql"], "why": "Metadata requests go through the load balancer to stateless API servers backed by the SQL metadata DB." },
+              { "through": ["compute", "stream", "db"], "why": "View events flow into a stream processor that aggregates per video and writes counts in batches, never one database write per view." }
+            ],
+            "forbidden": [
+              { "from": "client", "to": "datastore", "why": "Clients never query the database directly." }
+            ],
+            "connected": true,
+            "pass": 0.75
+          },
+          "solution": {
+            "nodes": [
+              { "id": "c", "type": "client", "x": 8, "y": 50 },
+              { "id": "lb", "type": "lb", "x": 28, "y": 30 },
+              { "id": "api", "type": "app", "x": 48, "y": 30, "label": "API servers" },
+              { "id": "cache", "type": "cache", "x": 68, "y": 12, "label": "Metadata cache" },
+              { "id": "views", "type": "stream", "x": 68, "y": 48, "label": "View-count aggregator" },
+              { "id": "meta", "type": "db_sql", "x": 90, "y": 30, "label": "Metadata DB" },
+              { "id": "jobs", "type": "queue", "x": 48, "y": 62, "label": "Transcode jobs" },
+              { "id": "tx", "type": "worker", "x": 68, "y": 75, "label": "Transcoders" },
+              { "id": "s3", "type": "object_store", "x": 48, "y": 88, "label": "Video storage (raw + segments)" },
+              { "id": "cdn", "type": "cdn", "x": 24, "y": 84, "label": "CDN" }
+            ],
+            "edges": [
+              { "from": "c", "to": "lb" },
+              { "from": "lb", "to": "api" },
+              { "from": "api", "to": "cache" },
+              { "from": "api", "to": "meta" },
+              { "from": "api", "to": "views" },
+              { "from": "views", "to": "meta" },
+              { "from": "api", "to": "jobs" },
+              { "from": "jobs", "to": "tx" },
+              { "from": "tx", "to": "s3" },
+              { "from": "tx", "to": "meta" },
+              { "from": "c", "to": "s3" },
+              { "from": "c", "to": "cdn" },
+              { "from": "cdn", "to": "s3" }
+            ]
+          },
+          "why": "Bytes and metadata take separate roads: uploads go straight to object storage, transcoders work off a queue, and players stream from the CDN. The API tier only touches small metadata, cached in front of SQL, and view counts arrive in batches from a stream processor."
+        }
+      ]
+    },
+    {
+      "id": "deep-dive",
+      "title": "Deep dives",
+      "steps": [
+        {
+          "id": "video-upload-path",
+          "type": "choice",
+          "prompt": "A creator uploads a 2 GB file from a phone on a patchy connection. What's the best upload path?",
+          "options": [
+            "The API returns pre-signed URLs, and the app uploads the file in parts straight to object storage, retrying only the parts that fail",
+            "POST the whole file to the API servers, which forward it to object storage",
+            "Give the app long-lived storage credentials so it can write to the bucket itself",
+            "Stream it over a WebSocket directly to a transcoding worker"
+          ],
+          "answer": "The API returns pre-signed URLs, and the app uploads the file in parts straight to object storage, retrying only the parts that fail",
+          "why": "A pre-signed multipart upload offloads the heavy bytes to object storage, lets parts upload in parallel and resume after a drop, and the storage event (or a complete call) starts processing.",
+          "misconceptions": {
+            "POST the whole file to the API servers, which forward it to object storage": "Every byte crosses your servers twice, a connection is tied up for minutes, and a drop at 1.9 GB restarts the whole upload.",
+            "Give the app long-lived storage credentials so it can write to the bucket itself": "Anyone can pull keys out of an app binary and then write or delete anything. Pre-signed URLs are scoped to one object and expire.",
+            "Stream it over a WebSocket directly to a transcoding worker": "Nothing is stored durably first: if that worker dies, the upload is gone. Workers should pull jobs from a queue, not hold uploads open."
+          }
+        },
+        {
+          "id": "video-pipeline-order",
+          "type": "order",
+          "prompt": "Put the processing pipeline for one upload in order.",
+          "items": [
+            "The upload completes and a transcoding job lands on the queue",
+            "A worker validates the raw file (format, duration, not corrupt)",
+            "Split the video into chunks at keyframe boundaries",
+            "Encode each chunk at every resolution and bitrate, in parallel",
+            "Package the encodings into HLS/DASH segments and write the manifests",
+            "Mark the video ready in the metadata DB"
+          ],
+          "why": "The pipeline is a DAG of jobs. Splitting lets many workers encode one video in parallel, which is how a new upload is watchable in minutes, and each job can be retried on its own, so a crashed worker only redoes its chunk."
+        },
+        {
+          "id": "video-abr-match",
+          "type": "match",
+          "prompt": "Match each adaptive-streaming term to what it means.",
+          "pairs": [
+            ["Rendition", "One encoding of the video at a set resolution and bitrate"],
+            ["Segment", "A few seconds of one rendition, fetched with a plain HTTP GET"],
+            ["Manifest (.m3u8 / .mpd)", "Lists the available renditions and where to find their segments"],
+            ["Adaptive bitrate (ABR)", "The player picks the rendition for each next segment from its bandwidth and buffer"],
+            ["Codec (H.264, VP9, AV1)", "The compression format: newer ones need fewer bytes for the same quality"]
+          ],
+          "why": "HLS and DASH both cut every rendition into short segments and describe them in a manifest. Switching quality is just requesting the next segment from a different rendition."
+        },
+        {
+          "id": "video-cut-egress",
+          "type": "choice",
+          "prompt": "CDN egress costs about $2M a day. Which of these cut that bill substantially? Pick all that apply.",
+          "options": [
+            "Encode popular videos with a more efficient codec such as VP9 or AV1",
+            "Place cache servers inside ISPs' networks, as Netflix Open Connect does",
+            "Serve rarely watched long-tail videos from your own origin servers instead of the CDN",
+            "Have players fetch every segment straight from cloud object storage",
+            "Shorten segments from 4 seconds to 1 second",
+            "Always send the highest rendition so nobody rebuffers"
+          ],
+          "answer": [
+            "Encode popular videos with a more efficient codec such as VP9 or AV1",
+            "Place cache servers inside ISPs' networks, as Netflix Open Connect does",
+            "Serve rarely watched long-tail videos from your own origin servers instead of the CDN"
+          ],
+          "why": "Cost = bytes × price per byte. Newer codecs shrink the bytes (VP9 and AV1 need roughly 30–50% fewer than H.264 at similar quality), while ISP caches and origin-served long tail lower the price paid per byte.",
+          "misconceptions": {
+            "Have players fetch every segment straight from cloud object storage": "Cloud object-storage egress is usually priced *higher* than CDN egress, and you lose edge caching.",
+            "Shorten segments from 4 seconds to 1 second": "Shorter segments mean 4× the requests and more per-segment overhead. They help latency (for live), not cost.",
+            "Always send the highest rendition so nobody rebuffers": "That maximizes bytes sent, the exact thing you pay for, and slow connections still rebuffer."
+          }
+        },
+        {
+          "id": "video-view-counts",
+          "type": "choice",
+          "prompt": "1B plays a day is ~10K view events/sec on average, and one viral video can take thousands per second on its own. How should views be counted?",
+          "options": [
+            "Log each view as an event on a stream; a stream processor sums views per video per minute and writes the totals in batches",
+            "Run `UPDATE videos SET views = views + 1` on every play",
+            "Increment a counter in the cache and never persist it",
+            "Count views from CDN logs in a nightly batch job"
+          ],
+          "answer": "Log each view as an event on a stream; a stream processor sums views per video per minute and writes the totals in batches",
+          "why": "Aggregating in a stream turns thousands of per-view writes into one write per video per window, and the event log can be replayed to recompute counts or feed analytics.",
+          "misconceptions": {
+            "Run `UPDATE videos SET views = views + 1` on every play": "That's 10K writes/sec on average, and every play of a viral video contends for the *same row lock*, serializing them on one hot row.",
+            "Increment a counter in the cache and never persist it": "A cache restart or eviction wipes the counts. A cache is fine as a buffer, not as the record.",
+            "Count views from CDN logs in a nightly batch job": "Counts would lag by up to a day, and segment requests aren't plays. Batch suits analytics, but the watch page wants numbers that move within minutes."
+          }
+        },
+        {
+          "id": "video-abr-text",
+          "type": "text",
+          "prompt": "A viewer on a train starts a video on fast Wi-Fi, then drops to a weak mobile signal. Explain how playback keeps going without stalling.",
+          "concepts": [
+            { "label": "The video exists in several renditions (bitrates or resolutions)", "any": ["rendition*", "bitrat*", "resolution*", "different qualit*", "multiple version*", "1080p"] },
+            { "label": "Each rendition is cut into short segments", "any": ["segment", "chunk", "small pieces", "short pieces", "few seconds of video"] },
+            { "label": "A manifest lists the renditions and their segments", "any": ["manifest", "playlist", "m3u8", "mpd", "index file"] },
+            { "label": "The player measures bandwidth and switches quality per segment", "any": ["switch*", "measur* bandwidth", "lower quality", "lower bitrat*", "lower resolution", "picks the next"] }
+          ],
+          "pass": 3,
+          "model": "The video was transcoded into several renditions, from 1080p down to 240p, each at a different bitrate, and every rendition is cut into short segments of a few seconds. The player first downloads a manifest that lists the renditions and their segment URLs. As it fetches each segment from the CDN it measures bandwidth and how full its buffer is, so when the signal weakens it switches to a lower bitrate rendition for the next segments, and back up when the connection recovers.",
+          "why": "Adaptive bitrate works because quality can change at every segment boundary: the player keeps a buffer ahead and, as throughput drops, requests the next segments from a smaller rendition instead of stalling."
+        }
+      ]
+    }
+  ]
+}

@@ -1,23 +1,25 @@
-// Persistent learner data: enrolled libraries, per-item memory, the review log,
-// mistakes, rewards, streak, and settings. Saved to a JSON file in the app's
-// user-data folder through the preload bridge, with a synchronous localStorage
-// mirror so nothing is lost if the window closes mid-debounce. On load the
-// newer of the two copies wins.
+// Persistent learner data: profile, imported courses, lesson progress, per-item
+// memory, the review log, mistakes, rewards, quests, streak, and settings.
+// Saved to a JSON file in the app's user-data folder through the preload
+// bridge, with a synchronous localStorage mirror so nothing is lost if the
+// window closes mid-debounce. On load the newer of the two copies wins.
 
-const STORAGE_KEY = "recall-progress-v1";
+const STORAGE_KEY = "recall-progress-v2";
 const SAVE_DELAY_MS = 300;
 const MAX_LOG = 5000;
 const MAX_REWARDS = 600;
+const VERSION = 2;
 
 export const DEFAULT_SETTINGS = {
-  dailyGoal: 15, // cards per day; learner-chosen
-  sessionSize: 12,
-  newPerDay: 10,
+  dailyXp: 60, // daily goal in XP; the streak counts days you reach it
+  sessionSize: 12, // cards per review session
   maxReviewsPerDay: 80,
   retention: 0.9,
-  recallFirst: "seen", // off | seen | always — hide options until you recall
+  recallFirst: "seen", // off | seen | always — hide options until you recall (review)
   selfExplain: "sometimes", // off | sometimes | always
-  includeLongForm: true,
+  confidenceInLessons: false, // rate confidence on every lesson step, not just in review
+  includeLongForm: true, // written answers in review sessions
+  sound: true,
   theme: "system" // system | light | dark
 };
 
@@ -27,21 +29,26 @@ const listeners = new Set();
 
 export function defaultProgress() {
   return {
-    version: 1,
+    version: VERSION,
     createdAt: Date.now(),
     savedAt: 0,
     settings: { ...DEFAULT_SETTINGS },
-    libraries: {},
+    // Who the learner is and how they chose to learn (set during onboarding).
+    profile: { onboarded: false, goal: null, games: [], startedAt: null },
+    imports: {}, // courseId → { raw, fileName, addedAt } for courses added by the learner
+    lessons: {}, // lessonKey → { completedAt, stars, best, attempts, lastPlayed }
+    unlocked: {}, // lessonKey → true when skipped ahead to, "placed" when tested out of
+    games: {}, // gameId → { best, plays, lastPlayed }
+    quests: { day: null, list: [] },
     items: {},
     skills: {},
-    keys: {},
     log: [],
     mistakes: {},
     rewards: [],
     badges: {},
     streak: { current: 0, best: 0, freezes: 1, lastDay: null, history: {}, frozen: [] },
     plan: { after: "", will: "" },
-    stats: { hyperFixed: 0, resolved: 0 }
+    stats: { xpTotal: 0, hyperFixed: 0, resolved: 0, closeEstimates: 0, bestCombo: 0 }
   };
 }
 
@@ -90,12 +97,10 @@ export function onProgressChange(listener) {
   return () => listeners.delete(listener);
 }
 
-export function resetProgress({ keepLibraries = true } = {}) {
-  const libraries = keepLibraries ? data.libraries : {};
-  const kept = data.settings;
+export function resetProgress() {
+  const keep = { settings: data.settings, imports: data.imports, profile: data.profile };
   data = defaultProgress();
-  data.libraries = libraries;
-  data.settings = kept;
+  Object.assign(data, keep);
   persist();
 }
 
@@ -109,12 +114,19 @@ export async function progressFilePath() {
 
 function migrate(candidate) {
   const base = defaultProgress();
+  if (candidate.version !== VERSION) {
+    // v1 tracked the old test files, which are gone; start fresh but keep the theme.
+    base.settings.theme = candidate.settings?.theme || base.settings.theme;
+    return base;
+  }
   const merged = { ...base, ...candidate };
   merged.settings = { ...DEFAULT_SETTINGS, ...(candidate.settings || {}) };
+  merged.profile = { ...base.profile, ...(candidate.profile || {}) };
   merged.streak = { ...base.streak, ...(candidate.streak || {}) };
   merged.plan = { ...base.plan, ...(candidate.plan || {}) };
   merged.stats = { ...base.stats, ...(candidate.stats || {}) };
-  for (const key of ["libraries", "items", "skills", "keys", "mistakes", "badges"]) {
+  merged.quests = { ...base.quests, ...(candidate.quests || {}) };
+  for (const key of ["imports", "lessons", "unlocked", "games", "items", "skills", "mistakes", "badges"]) {
     if (!merged[key] || typeof merged[key] !== "object" || Array.isArray(merged[key])) {
       merged[key] = {};
     }

@@ -1,0 +1,599 @@
+{
+  "id": "api-design",
+  "title": "API design",
+  "description": "Resources, methods, and status codes; pagination and versioning; safe retries; and picking the right protocol.",
+  "lessons": [
+    {
+      "id": "resources-and-methods",
+      "title": "Resources and methods",
+      "summary": "Nouns in the path, verbs in the method, and status codes that say what happened.",
+      "minutes": 7,
+      "steps": [
+        {
+          "id": "pretest-delete",
+          "type": "choice",
+          "prompt": "Which request best follows REST conventions for deleting note 42?",
+          "options": ["DELETE /notes/42", "POST /deleteNote?id=42", "GET /notes/42/delete", "DELETE /notes/delete/42"],
+          "answer": "DELETE /notes/42",
+          "why": "In REST the path names the thing (note 42) and the HTTP method names the action (DELETE). One URL per resource, many methods on it.",
+          "misconceptions": {
+            "GET /notes/42/delete": "GET must be safe. Crawlers, link prefetchers, and caches send GETs freely, and they would delete your data.",
+            "POST /deleteNote?id=42": "That's RPC style: the verb lives in the URL. It works, but REST keeps paths as nouns and lets the method carry the action.",
+            "DELETE /notes/delete/42": "The method already says delete. Putting it in the path too makes the URL name an action instead of the note."
+          }
+        },
+        {
+          "id": "resources-nouns",
+          "type": "concept",
+          "title": "Resources are nouns",
+          "body": "REST models an API as **resources**: nouns with URLs. A plural **collection** (`/books`) holds **items** (`/books/{id}`); nest only for clear ownership (`/users/{id}/books`). The HTTP **method** carries the verb, so the same path does different things.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Request", "Means"],
+            "rows": [
+              ["`GET /books`", "List books"],
+              ["`POST /books`", "Create a book"],
+              ["`GET /books/{id}`", "Read one book"],
+              ["`PUT /books/{id}`", "Replace the whole book"],
+              ["`PATCH /books/{id}`", "Change some fields"],
+              ["`DELETE /books/{id}`", "Delete it"]
+            ]
+          }
+        },
+        {
+          "id": "notes-api",
+          "type": "api",
+          "prompt": "Design the API for a simple notes app. Pick a method and a path for each action.",
+          "endpoints": [
+            { "purpose": "List the signed-in user's notes", "method": "GET", "path": ["/notes", "/users/{id}/notes", "/me/notes"] },
+            { "purpose": "Create a note", "method": "POST", "path": ["/notes", "/users/{id}/notes", "/me/notes"] },
+            { "purpose": "Read one note", "method": "GET", "path": ["/notes/{id}", "/users/{id}/notes/{noteId}", "/me/notes/{id}"] },
+            { "purpose": "Edit a note's title or text", "method": ["PATCH", "PUT"], "path": ["/notes/{id}", "/users/{id}/notes/{noteId}", "/me/notes/{id}"] },
+            { "purpose": "Delete a note", "method": "DELETE", "path": ["/notes/{id}", "/users/{id}/notes/{noteId}", "/me/notes/{id}"] }
+          ],
+          "why": "Two URLs cover all five actions: the collection `/notes` and the item `/notes/{id}`. The method picks the action; PATCH changes some fields, while PUT replaces the whole note."
+        },
+        {
+          "id": "safe-idempotent",
+          "type": "concept",
+          "title": "Safe and idempotent",
+          "body": "A method is **safe** if it doesn't change server state (GET). It's **idempotent** if sending it once or ten times leaves the same state (PUT, DELETE). The response may differ (a second DELETE can return 404), but the state doesn't. POST isn't idempotent: each call can create something new.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Method", "Safe", "Idempotent"],
+            "rows": [
+              ["GET", "Yes", "Yes"],
+              ["PUT", "No", "Yes"],
+              ["DELETE", "No", "Yes"],
+              ["POST", "No", "No"],
+              ["PATCH", "No", "Not guaranteed"]
+            ]
+          }
+        },
+        {
+          "id": "idempotent-sort",
+          "type": "sort",
+          "prompt": "Would sending each request twice leave the same server state as sending it once?",
+          "buckets": ["Idempotent", "Not idempotent"],
+          "items": [
+            { "text": "GET /notes/7", "bucket": "Idempotent", "why": "Reads don't change state at all." },
+            { "text": "PUT /notes/7 with the full note", "bucket": "Idempotent", "why": "Replacing with the same content twice leaves the same note." },
+            { "text": "DELETE /notes/7", "bucket": "Idempotent", "why": "The second call finds nothing to delete (maybe a 404), but the state is the same." },
+            { "text": "PATCH /notes/7 setting the title to \"Ideas\"", "bucket": "Idempotent", "why": "PATCH isn't guaranteed idempotent, but this one sets an absolute value, so repeating it changes nothing." },
+            { "text": "POST /notes", "bucket": "Not idempotent", "why": "Each call creates another note." },
+            { "text": "POST /orders with no idempotency key", "bucket": "Not idempotent", "why": "Two calls place two orders." },
+            { "text": "PATCH /counters/7 saying \"increment by 1\"", "bucket": "Not idempotent", "why": "Relative updates compound: two calls add 2." }
+          ],
+          "why": "Idempotency is about the effect on server state, not the method name. Absolute writes (set, replace, delete) are idempotent; creates and relative updates (add, increment) are not."
+        },
+        {
+          "id": "status-codes",
+          "type": "concept",
+          "title": "Status codes",
+          "body": "The status code tells the client what happened before it reads the body. **2xx**: it worked. **4xx**: the client must change something, so retrying as-is won't help (429 is the exception: wait, then retry). **5xx**: the server failed, and a retry may succeed.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Code", "Meaning"],
+            "rows": [
+              ["200 OK", "Success, here's the result"],
+              ["201 Created", "A new resource was created"],
+              ["204 No Content", "Success, empty body"],
+              ["400 Bad Request", "Malformed or invalid input"],
+              ["401 Unauthorized", "Not authenticated: no or bad credentials"],
+              ["403 Forbidden", "Authenticated, but not allowed"],
+              ["404 Not Found", "No such resource"],
+              ["409 Conflict", "Clashes with the current state"],
+              ["429 Too Many Requests", "Rate limited: slow down"],
+              ["500 Internal Server Error", "Unexpected server bug"],
+              ["503 Service Unavailable", "Temporarily overloaded or down"]
+            ]
+          }
+        },
+        {
+          "id": "status-match",
+          "type": "match",
+          "prompt": "Match each situation to the status code the API should return.",
+          "pairs": [
+            ["POST /notes succeeded; the response holds the new note", "201 Created"],
+            ["The request has no auth token at all", "401 Unauthorized"],
+            ["A signed-in user tries to delete someone else's note", "403 Forbidden"],
+            ["Sign-up with a username that's already taken", "409 Conflict"],
+            ["A client sent 500 requests in the last minute; the limit is 100", "429 Too Many Requests"]
+          ],
+          "why": "401 means \"who are you?\" and 403 means \"I know who you are, and no\". 409 reports a clash with existing state (some APIs use 400 or 422 for taken usernames), and 429 tells the client to back off."
+        },
+        {
+          "id": "503-vs-500",
+          "type": "choice",
+          "context": "The database is down for ten minutes of planned maintenance, so the API can't serve requests.",
+          "prompt": "Which status code should the API return?",
+          "options": ["500 Internal Server Error", "503 Service Unavailable", "404 Not Found", "400 Bad Request"],
+          "answer": "503 Service Unavailable",
+          "why": "503 marks a temporary server-side condition and can carry a `Retry-After` header, so clients and load balancers know to back off and try again rather than give up.",
+          "misconceptions": {
+            "500 Internal Server Error": "500 means an unexpected failure, like a bug. 503 says \"temporarily unavailable, try later\", which is exactly this case.",
+            "404 Not Found": "The resource exists; the server just can't serve it right now. A 404 could make clients delete their local copy.",
+            "400 Bad Request": "Nothing is wrong with the request. The problem is on the server side, so it's a 5xx."
+          }
+        }
+      ]
+    },
+    {
+      "id": "pagination-filtering-versioning",
+      "title": "Pagination, filtering, and versioning",
+      "summary": "Cursors for big feeds, query params for filters, and changing an API without breaking clients.",
+      "minutes": 8,
+      "steps": [
+        {
+          "id": "pretest-offset-drift",
+          "type": "choice",
+          "context": "A feed shows newest posts first: page 1 is `?offset=0&limit=20`, page 2 is `?offset=20&limit=20`.",
+          "prompt": "While a user reads page 1, 5 new posts are published. What do they see on page 2?",
+          "options": ["5 posts they already saw on page 1", "A gap: 5 posts are skipped", "Exactly the next 20 posts", "An error, because the offset is stale"],
+          "answer": "5 posts they already saw on page 1",
+          "why": "Five new posts push every older post down five slots, so offset 20 now starts at what used to be position 15, and five posts repeat.",
+          "misconceptions": {
+            "A gap: 5 posts are skipped": "Gaps happen when rows above the offset are deleted. New rows at the top push everything down, so the windows overlap instead.",
+            "Exactly the next 20 posts": "An offset counts rows at query time, so it shifts whenever rows are inserted ahead of it.",
+            "An error, because the offset is stale": "The server has no idea the offset is stale; it happily returns rows 20–39 of the current data."
+          }
+        },
+        {
+          "id": "offset-vs-cursor",
+          "type": "concept",
+          "title": "Offset vs cursor pagination",
+          "body": "**Offset** pagination says \"skip N rows\"; **cursor** (keyset) pagination says \"continue after this item\". The cursor is an opaque token holding the last item's sort key, so the query seeks straight to it through an index. Cursors stay correct as rows are inserted and cost the same on page 1 or page 10,000.",
+          "visual": {
+            "kind": "compare",
+            "left": {
+              "title": "Offset / limit",
+              "points": ["`?offset=4000&limit=20`", "Can jump to page N", "Database reads and discards 4,000 rows first", "Duplicates or gaps when rows change"]
+            },
+            "right": {
+              "title": "Cursor (keyset)",
+              "points": ["`?cursor=abc123&limit=20`", "Next and previous only", "`WHERE id < :last ORDER BY id DESC LIMIT 20`", "Stable under inserts and deletes"]
+            }
+          }
+        },
+        {
+          "id": "cursor-fill",
+          "type": "fill",
+          "text": "In a newest-first feed with increasing ids, the next page asks for posts with an id [[less than]] the last id the client saw. An [[index]] on that column lets the database seek straight to the spot. With `offset=4000`, the database must [[read and discard]] 4,000 rows first.",
+          "bank": ["less than", "index", "read and discard", "greater than", "cache", "lock"],
+          "why": "Newest-first means each page holds older, smaller ids, so the cursor condition is `id < last_id`. The index makes that a seek, while an offset forces the database to walk past every skipped row."
+        },
+        {
+          "id": "when-offset",
+          "type": "choice",
+          "context": "(A) An internal admin table of 5,000 customers where staff click \"page 7\". (B) An infinite-scroll feed over billions of posts with constant inserts.",
+          "prompt": "Which pagination fits each?",
+          "options": ["A: offset · B: cursor", "A: cursor · B: offset", "A: offset · B: offset (simplest everywhere)", "A: cursor · B: cursor (offset is never acceptable)"],
+          "answer": "A: offset · B: cursor",
+          "why": "Offset buys random access at the cost of scale, which is fine on a small, slow-changing table. Cursors give up random access for stability and constant cost, which a large, busy feed needs.",
+          "misconceptions": {
+            "A: cursor · B: cursor (offset is never acceptable)": "Offset is fine for small, slow-changing data where people want page numbers; skipping a few thousand rows is cheap.",
+            "A: offset · B: offset (simplest everywhere)": "Deep offsets get slower page by page and repeat posts as new ones arrive, exactly what a feed can't afford.",
+            "A: cursor · B: offset": "Backwards: cursors can't jump to page 7, and offsets break on a busy feed."
+          }
+        },
+        {
+          "id": "filter-sort-params",
+          "type": "concept",
+          "title": "Filter, sort, and page with query params",
+          "body": "The **path** names the resource; the **query string** narrows, orders, and pages it. Keep parameter names consistent across endpoints, allow sorting only on indexed fields, and cap `limit` (say, at 100) so one call can't scan the whole table. Return the next cursor in the response.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Query param", "Does"],
+            "rows": [
+              ["`tag=go`", "Filter by a field"],
+              ["`author=42`", "Filter by owner"],
+              ["`sort=-created_at`", "Newest first (`-` = descending)"],
+              ["`limit=20`", "Page size, capped by the server"],
+              ["`cursor=abc123`", "Continue after the last item"]
+            ]
+          }
+        },
+        {
+          "id": "blog-api",
+          "type": "api",
+          "prompt": "Design endpoints for a blog. Filters, sorting, and cursors go in the query string, so give only the method and path.",
+          "endpoints": [
+            { "purpose": "List one author's posts, newest first", "method": "GET", "path": ["/users/{id}/posts", "/authors/{id}/posts", "/posts"] },
+            { "purpose": "Get one post", "method": "GET", "path": ["/posts/{id}", "/users/{id}/posts/{postId}", "/authors/{id}/posts/{postId}"] },
+            { "purpose": "Search posts by tag", "method": "GET", "path": ["/posts", "/tags/{tag}/posts", "/posts/search", "/search"] },
+            { "purpose": "List the comments on a post", "method": "GET", "path": ["/posts/{id}/comments", "/comments"] },
+            { "purpose": "Add a comment to a post", "method": "POST", "path": ["/posts/{id}/comments", "/comments"] }
+          ],
+          "why": "Filtering (`?author=42&tag=go`) and paging (`?cursor=…&limit=20`) are query parameters on a collection, not new paths. Nest a collection under its parent (`/posts/{id}/comments`) when the child only makes sense inside it."
+        },
+        {
+          "id": "versioning",
+          "type": "concept",
+          "title": "Changing an API without breaking clients",
+          "body": "A public API is a promise. **Additive** changes (new optional fields, new endpoints) keep old clients working. **Breaking** changes (renaming, removing, retyping, new required inputs) need a new version, with the old one kept alive through a deprecation window. Put the version in the path or in a header.",
+          "visual": {
+            "kind": "compare",
+            "left": {
+              "title": "Version in the path",
+              "points": ["`/v1/orders`, `/v2/orders`", "Visible in logs, easy to route", "Easy to try with curl or a browser", "The most common choice for public APIs"]
+            },
+            "right": {
+              "title": "Version in a header",
+              "points": ["`Stripe-Version: 2024-06-20`", "URLs name the resource, not the version", "Harder to spot in logs and test by hand", "Used by Stripe and GitHub (dated versions)"]
+            }
+          }
+        },
+        {
+          "id": "breaking-sort",
+          "type": "sort",
+          "prompt": "Would each change break existing clients?",
+          "buckets": ["Backward-compatible", "Breaking"],
+          "items": [
+            { "text": "Add an optional field to a response", "bucket": "Backward-compatible", "why": "Safe as long as clients ignore fields they don't recognize (a tolerant reader)." },
+            { "text": "Add an optional query parameter", "bucket": "Backward-compatible", "why": "Old clients simply don't send it and get the default." },
+            { "text": "Add a new endpoint", "bucket": "Backward-compatible", "why": "Nothing old calls it, so nothing old changes." },
+            { "text": "Rename a response field", "bucket": "Breaking", "why": "Old clients look for the old name and find nothing." },
+            { "text": "Make an optional request field required", "bucket": "Breaking", "why": "Old clients that omit it start getting 400s." },
+            { "text": "Change `price` from a number to a string", "bucket": "Breaking", "why": "Old clients parse the wrong type." },
+            { "text": "Remove an endpoint", "bucket": "Breaking", "why": "Old clients that call it get 404s." }
+          ],
+          "why": "Old clients must keep working unchanged. Adding things they can ignore is safe; changing or removing anything they already rely on breaks them."
+        },
+        {
+          "id": "rename-field",
+          "type": "choice",
+          "context": "Mobile apps in the wild read `user_name`; you want it to be `username`. Many users never update their app.",
+          "prompt": "What's the best way to make the change?",
+          "options": [
+            "Rename it in place; clients will adapt",
+            "Add `username` alongside `user_name`, deprecate the old field, and remove it only in /v2 once old apps fade out",
+            "Return 410 Gone to old app versions so users must update",
+            "Move the whole API to GraphQL so clients pick their own field names"
+          ],
+          "answer": "Add `username` alongside `user_name`, deprecate the old field, and remove it only in /v2 once old apps fade out",
+          "why": "Additive first, removal later: ship both fields, watch usage of the old one drop, and remove it only in a new version after a deprecation window.",
+          "misconceptions": {
+            "Rename it in place; clients will adapt": "Installed app versions break the moment you deploy, and you can't force mobile users to update.",
+            "Return 410 Gone to old app versions so users must update": "That cuts off users who did nothing wrong. Forced upgrades are a last resort at the end of a long deprecation window.",
+            "Move the whole API to GraphQL so clients pick their own field names": "Switching protocols is a far bigger breaking change than the rename it's meant to avoid."
+          }
+        }
+      ]
+    },
+    {
+      "id": "idempotency-retries-limits",
+      "title": "Idempotency, retries, and limits",
+      "summary": "Make POSTs safe to retry, back off politely, and authenticate and validate every call.",
+      "minutes": 9,
+      "steps": [
+        {
+          "id": "pretest-timeout",
+          "type": "choice",
+          "prompt": "A client sends `POST /payments` to charge $50. The request times out before any response arrives. What does the client know?",
+          "options": [
+            "The charge failed, so it's safe to send again",
+            "The charge succeeded",
+            "Nothing: the charge may or may not have happened",
+            "The server will roll the charge back automatically"
+          ],
+          "answer": "Nothing: the charge may or may not have happened",
+          "why": "A timeout means \"no answer\", not \"no effect\". The request may have charged the card and only the response was lost, and resolving that ambiguity is what idempotency keys are for.",
+          "misconceptions": {
+            "The charge failed, so it's safe to send again": "The request may have reached the server and charged the card. Blindly resending a plain POST can charge twice.",
+            "The charge succeeded": "The request may never have arrived. Without a response you can't tell.",
+            "The server will roll the charge back automatically": "The server doesn't know the client gave up waiting; a completed charge stays completed."
+          }
+        },
+        {
+          "id": "idempotency-keys",
+          "type": "concept",
+          "title": "Idempotency keys",
+          "body": "To make a POST safe to retry, the client creates a unique **idempotency key** (such as a UUID) once per operation and sends it with every attempt: `Idempotency-Key: 4f9c…`. The server stores each key with its result; a repeat returns the saved result instead of charging again. Stripe's API works this way.",
+          "visual": {
+            "kind": "flow",
+            "steps": ["Client makes a key once", "POST + `Idempotency-Key`", "Server looks up the key", "New key: charge, save result", "Seen key: return saved result"]
+          }
+        },
+        {
+          "id": "retry-flow",
+          "type": "order",
+          "prompt": "Put a safe payment retry in order.",
+          "items": [
+            "Client generates a unique idempotency key for this payment",
+            "Client sends POST /payments with the key in a header",
+            "The request times out with no response",
+            "Client waits, using exponential backoff with jitter",
+            "Client retries the same request with the same key",
+            "Server finds the key and returns the original result"
+          ],
+          "why": "The key is created before the first attempt and reused unchanged on every retry. That's what lets the server recognize the retry as the same payment rather than a new one."
+        },
+        {
+          "id": "why-idempotency-key",
+          "type": "text",
+          "prompt": "In 2–3 sentences: why does an idempotency key stop a retried payment from charging the customer twice?",
+          "concepts": [
+            {
+              "label": "A timeout leaves the outcome unknown",
+              "any": ["timeout", "re:\\btim(e|ed|es)[ -]?out", "lost response", "unknown", "re:(don.?t|doesn.?t|do not|does not|can.?t|cannot) (know|tell)", "re:may (have )?(already )?(succeeded|gone through|been (processed|charged))", "network fail*"]
+            },
+            {
+              "label": "Every retry carries the same key",
+              "any": ["re:same (idempotency[ -]?)?key", "re:reus\\w* (the |that |its )?(same )?(idempotency[ -]?)?key", "re:key (stays|is|remains) the same", "identical key", "re:(one|a|single|unique) (idempotency[ -]?)?key (per|for each|for every)", "re:key (is |stays )?unique (per|for|to)"]
+            },
+            {
+              "label": "The server stores each key with its result",
+              "any": ["store key", "save key", "record key", "remember key", "persist key", "check key", "look up key", "keep track", "store result", "save result", "store response"]
+            },
+            {
+              "label": "A repeat returns the saved result instead of charging again",
+              "any": ["return stored result", "return saved result", "original result", "original response", "return previous", "return cached", "already processed", "ignore duplicate", "dedup*", "replay*", "recogni* duplicate", "detect* duplicate", "re:(not|never|won.?t|doesn.?t|without) (be )?charg\\w* (it |the card |them )?(again|twice)", "re:charg\\w* (only )?once"]
+            }
+          ],
+          "pass": 3,
+          "model": "A timeout means the client doesn't know whether the first charge went through, so it retries with the same idempotency key. The server stores each key with the result of the first attempt, and when a request arrives with a key it has already seen, it returns the stored result instead of charging the card again. However many retries happen, the customer is charged only once.",
+          "why": "The key turns \"did my payment happen?\" into a lookup: the first attempt does the work and records its outcome, and every retry just reads that record. The lookup and the charge must be atomic (for example, a unique constraint on the key) so two concurrent retries can't both slip through."
+        },
+        {
+          "id": "retries-backoff",
+          "type": "concept",
+          "title": "Retries, backoff, and 429",
+          "body": "Retry only what's safe: idempotent methods, or POSTs carrying an idempotency key. Retry on timeouts, 5xx, and **429 Too Many Requests**, not on other 4xx like 400 or 403. Back off exponentially with random **jitter** so thousands of clients don't retry in lockstep, and honor `Retry-After` when the server sends it.",
+          "visual": {
+            "kind": "bars",
+            "unit": "s",
+            "items": [
+              { "label": "Wait before retry 1", "value": 1 },
+              { "label": "Wait before retry 2", "value": 2 },
+              { "label": "Wait before retry 3", "value": 4 },
+              { "label": "Wait before retry 4", "value": 8 },
+              { "label": "Wait before retry 5", "value": 16 }
+            ]
+          }
+        },
+        {
+          "id": "retry-or-not",
+          "type": "sort",
+          "prompt": "Should the client retry automatically?",
+          "buckets": ["Retry with backoff", "Don't retry as-is"],
+          "items": [
+            { "text": "GET /orders/9 timed out", "bucket": "Retry with backoff", "why": "GET is safe; repeating it can't hurt." },
+            { "text": "503 Service Unavailable", "bucket": "Retry with backoff", "why": "A temporary server-side condition; it may clear in seconds." },
+            { "text": "429 Too Many Requests, Retry-After: 30", "bucket": "Retry with backoff", "why": "Wait the 30 seconds the server asked for, then retry." },
+            { "text": "PUT /profile/9 got 502 Bad Gateway", "bucket": "Retry with backoff", "why": "PUT is idempotent, and 502 is a server-side failure." },
+            { "text": "POST /payments timed out, no idempotency key", "bucket": "Don't retry as-is", "why": "Without a key the server can't tell a retry from a new payment. Check the payment's status first." },
+            { "text": "400 Bad Request: `amount` is missing", "bucket": "Don't retry as-is", "why": "The same request will fail the same way; fix it first." },
+            { "text": "403 Forbidden", "bucket": "Don't retry as-is", "why": "Permissions won't change because you asked again." }
+          ],
+          "why": "Retry when the failure is temporary and repeating is harmless. A 4xx other than 429 means the request itself must change, and a POST needs an idempotency key before it's safe to repeat."
+        },
+        {
+          "id": "tokens-validation",
+          "type": "concept",
+          "title": "Tokens and validation",
+          "body": "Clients log in once, then send a token on each request: `Authorization: Bearer <token>`. A **JWT** is a signed token holding claims (user id, expiry) that any server can verify with a key, without a session lookup. It's signed, not encrypted: use HTTPS and short expiries. Validate every input and reject bad ones with 400.",
+          "visual": {
+            "kind": "flow",
+            "steps": ["Log in", "Receive token", "Send `Bearer` token", "Verify signature + expiry", "Validate input", "Handle request"]
+          }
+        },
+        {
+          "id": "payments-api",
+          "type": "api",
+          "prompt": "Design a payments API. The create call carries an `Idempotency-Key` header, so its path stays a plain collection.",
+          "endpoints": [
+            { "purpose": "Charge a customer (create a payment)", "method": "POST", "path": ["/payments", "/charges", "/customers/{id}/payments"] },
+            { "purpose": "Check a payment's status after a timeout", "method": "GET", "path": ["/payments/{id}", "/charges/{id}"] },
+            { "purpose": "Refund a payment", "method": "POST", "path": ["/payments/{id}/refunds", "/refunds", "/charges/{id}/refunds"] },
+            { "purpose": "List a customer's payments", "method": "GET", "path": ["/customers/{id}/payments", "/users/{id}/payments", "/payments", "/customers/{id}/charges"] }
+          ],
+          "why": "Payments and refunds are resources you create with POST, so both take idempotency keys. A status GET is the safe way to resolve a timeout before deciding whether to retry."
+        },
+        {
+          "id": "jwt-signature",
+          "type": "choice",
+          "prompt": "A JWT's payload is base64url-encoded and signed. What does the signature guarantee?",
+          "options": [
+            "The claims haven't been altered since the issuer signed them",
+            "The claims are encrypted, so no one else can read them",
+            "The token can't be stolen and reused",
+            "The user is still logged in on the server"
+          ],
+          "answer": "The claims haven't been altered since the issuer signed them",
+          "why": "A signature proves integrity and origin: change one character of the payload and verification fails. It says nothing about secrecy, theft, or current session state.",
+          "misconceptions": {
+            "The claims are encrypted, so no one else can read them": "Base64url is an encoding, not encryption; anyone holding the token can decode the payload. Never put secrets in it.",
+            "The token can't be stolen and reused": "A bearer token works for whoever holds it. That's why it travels only over HTTPS and expires quickly.",
+            "The user is still logged in on the server": "Servers verify a JWT without a session lookup, which is also why revoking one before it expires is hard."
+          }
+        }
+      ]
+    },
+    {
+      "id": "choosing-a-protocol",
+      "title": "Choosing a protocol",
+      "summary": "REST, gRPC, or GraphQL, and polling, SSE, or WebSockets for real-time updates.",
+      "minutes": 9,
+      "steps": [
+        {
+          "id": "pretest-chat-transport",
+          "type": "choice",
+          "prompt": "A chat app must deliver messages both ways within ~100 ms. Which transport fits best?",
+          "options": ["Short polling every 5 seconds", "Long polling", "Server-Sent Events", "WebSockets"],
+          "answer": "WebSockets",
+          "why": "Chat is two-way, frequent, and latency-sensitive. One persistent, full-duplex WebSocket connection lets either side send a message the instant it exists.",
+          "misconceptions": {
+            "Short polling every 5 seconds": "Up to 5 seconds of delay, and most polls come back empty.",
+            "Long polling": "It works, but each delivered message ends the request and the client must open a new one, adding a round trip and headers per message.",
+            "Server-Sent Events": "SSE pushes server → client only; sending still needs separate HTTP requests. Workable, but WebSockets give one two-way channel."
+          }
+        },
+        {
+          "id": "rest-grpc-graphql",
+          "type": "concept",
+          "title": "REST, gRPC, GraphQL",
+          "body": "**REST**: resources over HTTP and JSON; universal and cacheable, the default for public APIs. **gRPC**: typed calls with Protocol Buffers over HTTP/2; compact, fast, and streaming, ideal between internal services. **GraphQL**: one endpoint where clients ask for exactly the fields they need, handy when many clients want different shapes of the same data.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Style", "On the wire", "Best fit"],
+            "rows": [
+              ["REST", "JSON over HTTP", "Public APIs, CRUD, CDN caching"],
+              ["gRPC", "Protobuf over HTTP/2", "Internal service-to-service calls"],
+              ["GraphQL", "Query in, JSON out", "Varied clients, nested data, one round trip"]
+            ]
+          }
+        },
+        {
+          "id": "graphql-fit",
+          "type": "choice",
+          "context": "A mobile home screen calls 4 REST endpoints and uses about 10% of each response's fields. On slow mobile networks every round trip hurts.",
+          "prompt": "Which approach targets exactly this problem?",
+          "options": ["GraphQL", "gRPC", "WebSockets", "Short polling"],
+          "answer": "GraphQL",
+          "why": "GraphQL lets the client ask for exactly the fields it needs across related objects in a single request, fixing both over-fetching and extra round trips. (On the REST side, a backend-for-frontend endpoint is the usual alternative.)",
+          "misconceptions": {
+            "gRPC": "gRPC shrinks payloads and speeds up each call, but every RPC still returns a fixed message, so you'd still make 4 calls or design a new one.",
+            "WebSockets": "A push channel doesn't fix over-fetching. The problem is the shape of the request, not who starts it.",
+            "Short polling": "Polling repeats requests; it makes this problem worse, not better."
+          }
+        },
+        {
+          "id": "realtime-options",
+          "type": "concept",
+          "title": "Getting fresh data to clients",
+          "body": "Four ways to deliver updates, from simplest to most capable. Polling is ordinary HTTP: the client keeps asking. SSE and WebSockets hold one connection open so the server can push the moment something changes; WebSockets also let the client send on the same connection.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Option", "How it works", "Cost", "Good for"],
+            "rows": [
+              ["Short polling", "Client asks every N s", "Many empty responses", "Slow-changing status"],
+              ["Long polling", "Server holds the request until data arrives", "One request per update", "Simple notifications, fallback"],
+              ["Server-Sent Events", "One-way server → client stream", "One open HTTP response", "Feeds, tickers, progress"],
+              ["WebSockets", "Two-way, full duplex", "One open TCP connection", "Chat, games, collaboration"]
+            ]
+          }
+        },
+        {
+          "id": "poll-or-push",
+          "type": "sort",
+          "prompt": "Is polling good enough, or does this need a persistent connection (SSE or WebSockets)?",
+          "buckets": ["Polling is fine", "Needs a persistent connection"],
+          "items": [
+            { "text": "Order status that changes a few times an hour", "bucket": "Polling is fine", "why": "Checking every 30–60 s is cheap and fresh enough." },
+            { "text": "\"Your export is ready\" after a 10-minute job", "bucket": "Polling is fine", "why": "A few seconds of delay on a 10-minute job doesn't matter." },
+            { "text": "Daily weather forecast on a dashboard", "bucket": "Polling is fine", "why": "It changes a handful of times a day." },
+            { "text": "Multiplayer game sending 20 updates per second", "bucket": "Needs a persistent connection", "why": "A new HTTP request per update would add latency and overhead to every frame." },
+            { "text": "Typing indicators in a chat", "bucket": "Needs a persistent connection", "why": "They're only useful if they arrive within a fraction of a second." },
+            { "text": "Stock prices ticking several times a second", "bucket": "Needs a persistent connection", "why": "Updates are constant; polling would either lag or flood the servers." }
+          ],
+          "why": "Polling cost grows with how often you ask and how fresh the data must be. Rare updates tolerate a short delay, so plain polling is simpler; frequent or latency-sensitive updates justify holding a connection open."
+        },
+        {
+          "id": "protocol-match",
+          "type": "match",
+          "prompt": "Match each use case to the protocol that fits it best.",
+          "pairs": [
+            ["Public API for third-party developers", "REST"],
+            ["High-volume calls between internal microservices", "gRPC"],
+            ["Web and mobile clients needing different fields of the same data", "GraphQL"],
+            ["Live sports scores pushed to browsers (one-way)", "Server-Sent Events"],
+            ["Collaborative whiteboard where everyone draws at once", "WebSockets"]
+          ],
+          "why": "Pick by who the clients are and which way data flows: REST for broad compatibility, gRPC for fast typed internal calls, GraphQL for flexible reads, SSE for one-way push, and WebSockets for two-way real time."
+        },
+        {
+          "id": "push-at-scale",
+          "type": "concept",
+          "title": "Pushing to millions",
+          "body": "A WebSocket server is **stateful**: it holds open connections for its own slice of users, so no single machine can reach everyone. When something changes, the producing service publishes once to a **pub/sub** channel (Kafka, Redis); every WebSocket server subscribes and pushes the event to the clients it holds.",
+          "visual": {
+            "kind": "flow",
+            "steps": ["Service records a change", "Publishes to pub/sub", "Every WebSocket server receives it", "Each pushes to its connected clients"]
+          }
+        },
+        {
+          "id": "live-scores-build",
+          "type": "build",
+          "prompt": "Live sports app: when the score service records a goal, push it to 1M connected fans within a second. Wire it up.",
+          "palette": ["client", "lb", "ws", "app", "service", "cache", "queue", "db_sql", "db_nosql"],
+          "start": {
+            "nodes": [{ "id": "c", "type": "client", "x": 8, "y": 50, "label": "Fans' apps" }],
+            "edges": []
+          },
+          "rules": {
+            "nodes": [
+              { "type": "ws", "why": "Pushing to apps needs servers that hold long-lived connections." },
+              { "type": "lb", "why": "1M connections won't fit on one server; a load balancer spreads them across a pool." },
+              { "type": "async|cache", "label": "Includes a pub/sub channel (queue or Redis)", "why": "Each WebSocket server holds only some fans, so one update must reach all of them." },
+              { "type": "compute", "label": "Includes a score service", "why": "Something has to record score changes and publish them." }
+            ],
+            "edges": [
+              { "from": "ws", "to": "async|cache", "why": "WebSocket servers subscribe to the channel to receive every update." }
+            ],
+            "paths": [
+              { "through": ["client", "lb", "ws"], "why": "Fans connect through the load balancer to a WebSocket server." },
+              { "through": ["compute", "async|cache", "ws", "client"], "why": "An update flows from the score service through pub/sub to the WebSocket servers and out to fans." }
+            ],
+            "forbidden": [
+              { "from": "client", "to": "db", "why": "Clients never talk to the database directly." }
+            ],
+            "connected": true,
+            "pass": 0.75
+          },
+          "solution": {
+            "nodes": [
+              { "id": "c", "type": "client", "x": 8, "y": 50, "label": "Fans' apps" },
+              { "id": "lb", "type": "lb", "x": 26, "y": 50 },
+              { "id": "ws", "type": "ws", "x": 45, "y": 50 },
+              { "id": "q", "type": "queue", "x": 64, "y": 50, "label": "Pub/sub: score updates" },
+              { "id": "s", "type": "service", "x": 84, "y": 50, "label": "Score service" },
+              { "id": "db", "type": "db_nosql", "x": 84, "y": 82, "label": "Scores" }
+            ],
+            "edges": [
+              ["c", "lb"],
+              ["lb", "ws"],
+              ["ws", "q"],
+              ["s", "q"],
+              ["s", "db"]
+            ]
+          },
+          "why": "Fans connect through a load balancer to a pool of WebSocket servers. The score service saves each change and publishes it once, and pub/sub fans it out to every WebSocket server, each pushing to the fans it holds."
+        },
+        {
+          "id": "sse-vs-ws",
+          "type": "choice",
+          "context": "A news site wants to push breaking headlines to readers' browsers. Readers never send anything back on this channel.",
+          "prompt": "What's the simplest good fit?",
+          "options": ["WebSockets", "Server-Sent Events", "Short polling every second", "gRPC bidirectional streaming from the browser"],
+          "answer": "Server-Sent Events",
+          "why": "One-way server → browser updates are what SSE is for: a long-lived HTTP response streaming events, with automatic reconnection built into the browser's `EventSource`.",
+          "misconceptions": {
+            "WebSockets": "It works, but you'd run a two-way protocol for one-way traffic. SSE is plain HTTP and reconnects (resuming from `Last-Event-ID`) for free.",
+            "Short polling every second": "Millions of readers each sending a request per second is enormous load for headlines that change a few times an hour.",
+            "gRPC bidirectional streaming from the browser": "Browsers can't speak native gRPC. gRPC-Web, through a proxy, supports only unary and server-streaming calls."
+          }
+        }
+      ]
+    }
+  ]
+}

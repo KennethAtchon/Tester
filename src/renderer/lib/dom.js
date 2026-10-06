@@ -59,6 +59,12 @@ function applyProps(element, props) {
   }
 }
 
+// Like element.append, but skips null/false children the way h() does.
+export function append(element, ...children) {
+  appendChildren(element, children);
+  return element;
+}
+
 function appendChildren(element, children) {
   for (const child of children.flat(Infinity)) {
     if (child == null || child === false || child === true) {

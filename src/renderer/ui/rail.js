@@ -1,22 +1,14 @@
-// Left navigation rail: brand, primary destinations with live counts, the
-// daily-goal + streak card, and the theme switch.
+// Left navigation rail: brand, destinations with live counts, and a card
+// with level, today's XP toward the daily goal, and the streak.
 
 import { h } from "../lib/dom.js";
 import { icon } from "./icons.js";
 import { route, href } from "./router.js";
 import { catalog } from "../state/catalog.js";
-import { todayStats } from "../state/learner.js";
-import { openMistakes } from "../state/sessions.js";
+import { todayStats, levelInfo } from "../state/learner.js";
+import { openMistakeCount } from "../state/sessions.js";
 import { meter, plural } from "./components.js";
 import { cycleTheme, themePreference } from "./theme.js";
-
-const NAV = [
-  { name: "today", label: "Today", icon: "today" },
-  { name: "map", label: "Skill map", icon: "map", match: ["map", "skill"] },
-  { name: "mistakes", label: "Mistakes", icon: "notebook" },
-  { name: "insights", label: "Insights", icon: "insights" },
-  { name: "exam", label: "Mock exam", icon: "exam" }
-];
 
 const THEME_META = {
   system: { icon: "monitor", label: "System theme" },
@@ -27,14 +19,19 @@ const THEME_META = {
 export function renderRail() {
   const rail = document.querySelector("#rail");
   const current = route().name;
-  const hasLibraries = catalog().libraries.length > 0;
-  const stats = hasLibraries ? todayStats() : null;
-  const mistakes = hasLibraries ? openMistakes().length : 0;
+  const hasCourses = catalog().courses.length > 0;
+  const stats = hasCourses ? todayStats() : null;
+  const mistakes = hasCourses ? openMistakeCount() : 0;
+  const mainCourse = catalog().courses[0];
 
-  const counts = {
-    today: stats && stats.due > 0 ? stats.due : null,
-    mistakes: mistakes > 0 ? mistakes : null
-  };
+  const NAV = [
+    { name: "home", label: "Home", icon: "today" },
+    mainCourse && { name: "course", params: [mainCourse.id], label: "Course", icon: "map", match: ["course"] },
+    { name: "practice", label: "Practice", icon: "zap", count: stats?.due || null },
+    { name: "lab", label: "Design Lab", icon: "layers" },
+    { name: "progress", label: "Progress", icon: "insights", count: mistakes || null },
+    { name: "library", label: "Library", icon: "book" }
+  ].filter(Boolean);
 
   const nav = h(
     "nav",
@@ -43,35 +40,29 @@ export function renderRail() {
       const active = (entry.match || [entry.name]).includes(current);
       return h(
         "a",
-        { class: ["rail-link", active && "is-active"], href: href(entry.name), "aria-current": active ? "page" : null },
+        { class: ["rail-link", active && "is-active"], href: href(entry.name, ...(entry.params || [])), "aria-current": active ? "page" : null },
         icon(entry.icon),
         h("span", { class: "rail-link-label", text: entry.label }),
-        counts[entry.name] != null && h("span", { class: "rail-count", text: String(counts[entry.name]), "aria-label": `${counts[entry.name]} pending` })
+        entry.count != null && h("span", { class: "rail-count", text: String(entry.count) })
       );
     })
   );
 
   const theme = THEME_META[themePreference()];
-
   const children = [
     h(
       "a",
-      { class: "brand", href: href("today") },
+      { class: "brand", href: href("home") },
       h("span", { class: "brand-mark" }, icon("brand", { size: 20 })),
-      h("span", { class: "brand-text" }, h("strong", { text: "Recall" }), h("span", { text: "Learning studio" }))
+      h("span", { class: "brand-text" }, h("strong", { text: "Recall" }), h("span", { text: "Learn by doing" }))
     ),
     nav,
     h("div", { class: "rail-spacer" }),
-    stats && streakCard(stats),
+    stats && statusCard(stats),
     h(
       "div",
       { class: "rail-footer" },
-      h(
-        "a",
-        { class: ["rail-link", "rail-link-sm", current === "settings" && "is-active"], href: href("settings") },
-        icon("settings"),
-        h("span", { class: "rail-link-label", text: "Settings" })
-      ),
+      h("a", { class: ["rail-link", "rail-link-sm", current === "settings" && "is-active"], href: href("settings") }, icon("settings"), h("span", { class: "rail-link-label", text: "Settings" })),
       h(
         "button",
         {
@@ -91,19 +82,25 @@ export function renderRail() {
   rail.replaceChildren(...children.filter(Boolean));
 }
 
-function streakCard(stats) {
-  const progressValue = stats.goal ? stats.done / stats.goal : 0;
+function statusCard(stats) {
+  const level = levelInfo();
   return h(
     "div",
-    { class: "rail-streak" },
+    { class: "rail-status" },
     h(
       "div",
-      { class: "rail-streak-row" },
-      h("span", { class: ["streak-flame", stats.streak > 0 && "is-lit"] }, icon("flame", { size: 18 })),
-      h("strong", { text: stats.streak > 0 ? `${stats.streak}-day streak` : "No streak yet" }),
-      stats.freezes > 0 && h("span", { class: "freeze-count", title: `${plural(stats.freezes, "streak freeze")} — covers a missed day automatically` }, icon("snow", { size: 14 }), String(stats.freezes))
+      { class: "rail-level" },
+      h("span", { class: "level-badge", text: String(level.level) }),
+      h("div", { class: "rail-level-text" }, h("strong", { text: `Level ${level.level}` }), h("span", { text: `${level.next - level.floor - level.into} XP to level ${level.level + 1}` }))
     ),
-    meter(progressValue, { tone: stats.goalMet ? "good" : "accent", label: "Daily goal" }),
-    h("div", { class: "rail-streak-sub", text: stats.goalMet ? `Goal met · ${stats.done} today` : `${stats.done} / ${stats.goal} cards today` })
+    meter(level.progress, { tone: "brand", label: "Level progress" }),
+    h(
+      "div",
+      { class: "rail-row" },
+      h("span", { class: ["streak-flame", stats.streak > 0 && "is-lit"], title: `${plural(stats.streak, "day")} in a row` }, icon("flame", { size: 16 }), String(stats.streak)),
+      h("span", { class: "rail-goal", title: "Today's XP toward your daily goal" }, `${Math.min(stats.xpToday, stats.goal)}/${stats.goal} XP`),
+      stats.freezes > 0 && h("span", { class: "freeze-count", title: `${plural(stats.freezes, "streak freeze")} — covers a missed day` }, icon("snow", { size: 14 }), String(stats.freezes))
+    ),
+    meter(stats.goal ? stats.xpToday / stats.goal : 0, { tone: stats.goalMet ? "good" : "accent", label: "Daily goal" })
   );
 }

@@ -1,15 +1,9 @@
-// Grading helpers for the practice engine. Pure functions only.
-//
-// - resolveKey: what the item can be checked against (options, model text,
-//   rubric, runnable tests) — decides auto-grading vs. self-grading.
-// - coverage / segmentModelAnswer: key-term overlap between a learner's answer
-//   and the model answer, used to prefill self-grading and mark differences.
-// - prefillRubric: suggests which rubric rows an open answer already covers.
-// - buildHintLadder: nudge → partial → reveal, each with a cost.
-// - buildCloze / checkClozeWord: the "faded example" — the model answer with
-//   key words blanked out for the learner to fill in.
+// Pure graders for every exercise type, plus the text helpers they share.
+// Each grader takes a step (from a course) and the learner's response, and
+// returns { correct, score (0–1), ...details } — the player decides what to
+// show and the learner model decides what to schedule.
 
-const STOPWORDS = new Set(
+export const STOPWORDS = new Set(
   ("a an the and or but if then else of to in on at by for with from into onto over under as is are was were be been being " +
     "it its this that these those there their they them he she we you your our i me my not no yes do does did done " +
     "can could should would will may might must shall than so such very more most less least also only just about " +
@@ -17,19 +11,11 @@ const STOPWORDS = new Set(
     "further once here because while until via per etc e g ie eg vs").split(" ")
 );
 
-// Words that describe a rubric row rather than its content ("Mentions DNS…").
-const RUBRIC_WORDS = new Set(
-  ("mentions mention explains explain identifies identify describes describe gives give uses use includes include notes note " +
-    "states state says say correctly clearly answer example examples shows show discusses discuss recognizes recognize names name " +
-    "lists list defines define distinguishes distinguish demonstrates demonstrate provides provide realistic appropriate " +
-    "accurately accurate understands understand acknowledges acknowledge treat treats does").split(" ")
-);
-
 export const CONFIDENCE_LEVELS = [
-  { value: 1, label: "Guess", short: "Guess", p: 0.25 },
-  { value: 2, label: "Unsure", short: "Unsure", p: 0.5 },
-  { value: 3, label: "Likely", short: "Likely", p: 0.75 },
-  { value: 4, label: "Certain", short: "Certain", p: 0.95 }
+  { value: 1, label: "Guess", p: 0.25 },
+  { value: 2, label: "Unsure", p: 0.5 },
+  { value: 3, label: "Likely", p: 0.75 },
+  { value: 4, label: "Certain", p: 0.95 }
 ];
 
 export function normalizeText(text) {
@@ -59,312 +45,20 @@ export function stem(word) {
   return w;
 }
 
-// Unique content words of text as { word, stem } (stopwords removed).
-export function contentWords(text, extraStop = null) {
-  const seen = new Set();
-  const words = [];
-  for (const raw of normalizeText(text).split(" ")) {
-    const word = raw.replace(/^[./-]+|[./-]+$/g, "");
-    if (word.length < 2 || STOPWORDS.has(word) || extraStop?.has(word)) {
-      continue;
+export function levenshtein(a, b) {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
     }
-    const key = stem(word);
-    if (!seen.has(key)) {
-      seen.add(key);
-      words.push({ word, stem: key });
-    }
+    previous = current;
   }
-  return words;
+  return previous[b.length];
 }
 
-function stemSet(text) {
-  return new Set(contentWords(text).map((entry) => entry.stem));
-}
-
-// How much of the reference's vocabulary appears in the response.
-export function coverage(response, reference, extraStop = null) {
-  const target = contentWords(reference, extraStop);
-  if (target.length === 0) {
-    return { score: 0, hit: [], missed: [] };
-  }
-  const have = stemSet(response);
-  const hit = [];
-  const missed = [];
-  for (const entry of target) {
-    (have.has(entry.stem) ? hit : missed).push(entry.word);
-  }
-  return { score: hit.length / target.length, hit, missed };
-}
-
-// Splits a model answer into segments flagged hit/miss against a response,
-// so the comparison view can mark which key terms the learner produced.
-export function segmentModelAnswer(model, response) {
-  const have = stemSet(response);
-  return String(model)
-    .split(/(\s+)/)
-    .map((token) => {
-      const core = token.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "").toLowerCase();
-      if (!core || core.length < 3 || STOPWORDS.has(core)) {
-        return { text: token, mark: null };
-      }
-      return { text: token, mark: have.has(stem(core)) ? "hit" : "miss" };
-    });
-}
-
-// What can this item be checked against?
-export function resolveKey(question, override = null) {
-  const raw = override ?? question.answerKey;
-  const key = {
-    choice: null,
-    text: null,
-    rubric: question.rubric || [],
-    tests: question.type === "code_run" && question.runnerTests.length > 0,
-    auto: false
-  };
-
-  if (isChoice(question)) {
-    const values = Array.isArray(raw) ? raw : raw ? [raw] : [];
-    const matched = values.map((value) => matchOption(value, question.options)).filter((option) => option !== null);
-    if (matched.length > 0 && matched.length === values.length) {
-      key.choice = [...new Set(matched)];
-      key.auto = true;
-    } else if (values.length > 0) {
-      key.text = values.join("; ");
-    }
-  } else if (raw) {
-    key.text = Array.isArray(raw) ? raw.join("\n") : raw;
-  }
-
-  if (key.tests) {
-    key.auto = true;
-  }
-
-  return key;
-}
-
-export function isChoice(question) {
-  return (
-    (question.type === "single_choice" || question.type === "multiple_choice" || question.type === "true_false") &&
-    question.options.length > 0
-  );
-}
-
-export function matchOption(value, options) {
-  const target = normalizeText(value);
-  if (!target) {
-    return null;
-  }
-  const exact = options.find((option) => normalizeText(option) === target);
-  if (exact) {
-    return exact;
-  }
-  // Tolerate small wording drift between the key and the option text.
-  let best = null;
-  let bestScore = 0;
-  for (const option of options) {
-    const a = stemSet(option);
-    const b = stemSet(value);
-    const union = new Set([...a, ...b]);
-    const shared = [...a].filter((word) => b.has(word)).length;
-    const score = union.size ? shared / union.size : 0;
-    if (score > bestScore) {
-      best = option;
-      bestScore = score;
-    }
-  }
-  return bestScore >= 0.8 ? best : null;
-}
-
-export function gradeChoice(key, selected) {
-  const correct = new Set(key.choice);
-  const chosen = new Set(selected);
-  const missed = [...correct].filter((option) => !chosen.has(option));
-  const wrong = [...chosen].filter((option) => !correct.has(option));
-  const right = [...chosen].filter((option) => correct.has(option));
-  return {
-    correct: missed.length === 0 && wrong.length === 0,
-    score: correct.size ? Math.max(0, (right.length - wrong.length) / correct.size) : 0,
-    missed,
-    wrong
-  };
-}
-
-// Auto-check of a typed answer against model text: a suggestion only — the
-// learner makes the final call.
-export function checkText(response, modelText) {
-  if (!String(response ?? "").trim()) {
-    return { verdict: "blank", score: 0, hit: [], missed: contentWords(modelText).map((entry) => entry.word) };
-  }
-  if (normalizeText(response) === normalizeText(modelText)) {
-    return { verdict: "match", score: 1, hit: contentWords(modelText).map((entry) => entry.word), missed: [] };
-  }
-  const result = coverage(response, modelText);
-  const verdict = result.score >= 0.7 ? "match" : result.score >= 0.35 ? "partial" : "miss";
-  return { verdict, ...result };
-}
-
-export function prefillRubric(response, rubric) {
-  const have = stemSet(response);
-  return rubric.map((row) => {
-    const words = contentWords(row, RUBRIC_WORDS);
-    if (words.length === 0) {
-      return false;
-    }
-    const hits = words.filter((entry) => have.has(entry.stem)).length;
-    return hits / words.length >= 0.4 || (words.length <= 2 && hits >= 1);
-  });
-}
-
-// Maps the outcome of an attempt to the grade we suggest (1–4). The learner
-// can override it; auto-graded misses are fixed at Again.
-export function suggestGrade({ outcome, confidence, hints = 0, latencyMs = 0 }) {
-  if (outcome === "wrong") {
-    return 1;
-  }
-  if (outcome === "partial") {
-    return 2;
-  }
-  if (outcome === "correct") {
-    if (hints > 0 || confidence === 1) {
-      return 2;
-    }
-    if (confidence === 4 && latencyMs > 0 && latencyMs < 8000) {
-      return 4;
-    }
-    return 3;
-  }
-  return null;
-}
-
-export function rubricOutcome(checked) {
-  if (checked.length === 0) {
-    return "unknown";
-  }
-  const share = checked.filter(Boolean).length / checked.length;
-  if (share >= 0.75) {
-    return "correct";
-  }
-  if (share >= 0.4) {
-    return "partial";
-  }
-  return "wrong";
-}
-
-// Up to three hints, cheapest first. The last rung of an auto ladder reveals
-// the answer, which ends the attempt as a miss.
-export function buildHintLadder(question, key) {
-  if (question.hints.length > 0) {
-    return question.hints.map((text, index) => ({ label: `Hint ${index + 1}`, kind: "text", text, reveal: false }));
-  }
-
-  if (key.choice && question.type !== "true_false") {
-    const wrong = question.options.filter((option) => !key.choice.includes(option));
-    const ladder = [];
-    if (question.type === "multiple_choice") {
-      ladder.push({ label: "How many?", kind: "text", text: `${key.choice.length} of the ${question.options.length} options are correct.`, reveal: false });
-      if (wrong.length > 0) {
-        ladder.push({ label: "Rule one out", kind: "eliminate", options: wrong.slice(0, 1), reveal: false });
-      }
-    } else {
-      if (wrong.length >= 2) {
-        ladder.push({ label: "Rule one out", kind: "eliminate", options: [wrong[wrong.length - 1]], reveal: false });
-      }
-      if (wrong.length >= 3) {
-        ladder.push({ label: "Rule out another", kind: "eliminate", options: [wrong[wrong.length - 1], wrong[0]], reveal: false });
-      }
-    }
-    ladder.push({ label: "Show answer", kind: "reveal", reveal: true });
-    return ladder;
-  }
-
-  if (key.text && !isChoice(question)) {
-    const words = key.text.split(/\s+/).filter(Boolean);
-    return [
-      { label: "Nudge", kind: "text", text: `Starts with “${words.slice(0, 3).join(" ")}…” — about ${words.length} words.`, reveal: false },
-      { label: "Partial answer", kind: "text", text: clozePreview(key.text), reveal: false },
-      { label: "Show answer", kind: "reveal", reveal: true }
-    ];
-  }
-
-  if (key.rubric.length > 0) {
-    const half = Math.max(1, Math.ceil(key.rubric.length / 2));
-    return [
-      { label: "Nudge", kind: "text", text: `A full answer covers ${key.rubric.length} points. One of them: ${key.rubric[0]}`, reveal: false },
-      { label: "More points", kind: "list", items: key.rubric.slice(0, half), reveal: false },
-      { label: "All points", kind: "list", items: key.rubric, reveal: false }
-    ];
-  }
-
-  if (key.tests) {
-    const tests = question.runnerTests;
-    const ladder = [{ label: "What's tested", kind: "list", items: tests.map((test) => test.name || test.call), reveal: false }];
-    const first = tests.find((test) => Object.prototype.hasOwnProperty.call(test, "expect"));
-    if (first) {
-      ladder.push({ label: "First case", kind: "code", text: `${first.call}\n// should return ${JSON.stringify(first.expect)}`, reveal: false });
-    }
-    return ladder;
-  }
-
-  return [];
-}
-
-// The faded example: blanks out up to maxBlanks key words, evenly spread and
-// biased to longer words, so the learner regenerates the important parts.
-export function buildCloze(text, maxBlanks = 6) {
-  const tokens = String(text).split(/(\s+)/);
-  const candidates = [];
-
-  tokens.forEach((token, index) => {
-    const match = token.match(/^([^A-Za-z0-9]*)([A-Za-z0-9][A-Za-z0-9'-]*[A-Za-z0-9]|[A-Za-z0-9])([^A-Za-z0-9]*)$/);
-    if (!match) {
-      return;
-    }
-    const word = match[2];
-    if (word.length >= 4 && !STOPWORDS.has(word.toLowerCase())) {
-      candidates.push({ index, prefix: match[1], word, suffix: match[3] });
-    }
-  });
-
-  const blankCount = Math.min(maxBlanks, Math.max(1, Math.round(candidates.length * 0.35)));
-  const chosen = new Set();
-  if (candidates.length > 0) {
-    const step = candidates.length / blankCount;
-    for (let slot = 0; slot < blankCount; slot += 1) {
-      // Within each slice, prefer the longest word (usually the key term).
-      const slice = candidates.slice(Math.floor(slot * step), Math.max(Math.floor((slot + 1) * step), Math.floor(slot * step) + 1));
-      const best = slice.reduce((a, b) => (b.word.length > a.word.length ? b : a), slice[0]);
-      if (best) {
-        chosen.add(best.index);
-      }
-    }
-  }
-
-  const byIndex = new Map(candidates.map((candidate) => [candidate.index, candidate]));
-  const parts = [];
-  tokens.forEach((token, index) => {
-    if (chosen.has(index)) {
-      const candidate = byIndex.get(index);
-      if (candidate.prefix) {
-        parts.push({ text: candidate.prefix });
-      }
-      parts.push({ blank: true, answer: candidate.word });
-      if (candidate.suffix) {
-        parts.push({ text: candidate.suffix });
-      }
-    } else if (token) {
-      parts.push({ text: token });
-    }
-  });
-  return parts;
-}
-
-export function clozePreview(text) {
-  return buildCloze(text, 8)
-    .map((part) => (part.blank ? "_".repeat(Math.min(10, Math.max(4, part.answer.length))) : part.text))
-    .join("");
-}
-
-export function checkClozeWord(input, answer) {
+// Typed word vs. accepted answer: forgiving of case, plurals, and a typo.
+export function wordMatches(input, answer) {
   const a = normalizeText(input);
   const b = normalizeText(answer);
   if (!a) {
@@ -377,42 +71,222 @@ export function checkClozeWord(input, answer) {
   return levenshtein(a, b) <= tolerance;
 }
 
-export function levenshtein(a, b) {
-  const rows = a.length + 1;
-  const cols = b.length + 1;
-  let previous = Array.from({ length: cols }, (_, index) => index);
-  for (let i = 1; i < rows; i += 1) {
-    const current = [i];
-    for (let j = 1; j < cols; j += 1) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost);
+// ── choice ──────────────────────────────────────────────────────────────────
+
+export function choiceAnswers(step) {
+  if (step.answer == null) {
+    return null;
+  }
+  return Array.isArray(step.answer) ? step.answer : [step.answer];
+}
+
+export function isMulti(step) {
+  return Boolean(step.multi) || (Array.isArray(step.answer) && step.answer.length > 1);
+}
+
+export function gradeChoice(step, selected) {
+  const answers = choiceAnswers(step);
+  if (!answers) {
+    return { correct: null, score: null, missed: [], wrong: [], selfGrade: true };
+  }
+  const correct = new Set(answers);
+  const chosen = new Set(selected);
+  const missed = [...correct].filter((option) => !chosen.has(option));
+  const wrong = [...chosen].filter((option) => !correct.has(option));
+  const right = [...chosen].filter((option) => correct.has(option)).length;
+  return {
+    correct: missed.length === 0 && wrong.length === 0,
+    score: Math.max(0, (right - wrong.length) / correct.size),
+    missed,
+    wrong
+  };
+}
+
+export function misconceptionFor(step, option) {
+  const notes = step.misconceptions || {};
+  return notes[option] ?? Object.entries(notes).find(([key]) => normalizeText(key) === normalizeText(option))?.[1] ?? null;
+}
+
+// ── sort: items into buckets ────────────────────────────────────────────────
+
+// placement: array (by item index) of bucket name or null
+export function gradeSort(step, placement) {
+  const perItem = step.items.map((item, index) => placement[index] === item.bucket);
+  const right = perItem.filter(Boolean).length;
+  return { correct: right === step.items.length, score: right / step.items.length, perItem };
+}
+
+// ── order: arrange into sequence ────────────────────────────────────────────
+
+// order: array of original item indices in the learner's chosen order
+export function gradeOrder(step, order) {
+  const perPosition = order.map((itemIndex, position) => itemIndex === position);
+  // Partial credit = longest run already in the right relative order.
+  const lis = longestIncreasing(order);
+  return { correct: perPosition.every(Boolean), score: lis / order.length, perPosition };
+}
+
+function longestIncreasing(list) {
+  const tails = [];
+  for (const value of list) {
+    let low = 0;
+    let high = tails.length;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      if (tails[mid] < value) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
     }
-    previous = current;
+    tails[low] = value;
   }
-  return previous[cols - 1];
+  return tails.length;
 }
 
-// Misconception note for a chosen distractor, if the item defines one.
-export function misconceptionFor(question, option) {
-  const notes = question.misconceptions || {};
-  if (notes[option]) {
-    return notes[option];
-  }
-  const target = normalizeText(option);
-  const entry = Object.entries(notes).find(([key]) => normalizeText(key) === target);
-  return entry ? entry[1] : null;
+// ── match: pair left with right ─────────────────────────────────────────────
+
+// pairs: array (by left index) of chosen right index or null
+export function gradeMatch(step, pairs) {
+  const perPair = step.pairs.map((_, index) => pairs[index] === index);
+  const right = perPair.filter(Boolean).length;
+  return { correct: right === step.pairs.length, score: right / step.pairs.length, perPair };
 }
 
-// Rough probability of a lucky guess, used for difficulty targeting.
-export function guessRate(question) {
-  if (question.type === "true_false") {
-    return 0.5;
+// ── estimate: back-of-envelope numbers ──────────────────────────────────────
+
+const MAGNITUDES = { k: 1e3, thousand: 1e3, m: 1e6, mm: 1e6, million: 1e6, b: 1e9, bn: 1e9, billion: 1e9, t: 1e12, trillion: 1e12 };
+
+// "1.2k", "3 million", "2.5e6", "1,000,000", "40%" → number (or null).
+export function parseQuantity(text) {
+  const raw = String(text ?? "").trim().toLowerCase().replace(/,/g, "").replace(/_/g, "");
+  if (!raw) {
+    return null;
   }
-  if (question.type === "single_choice" && question.options.length > 0) {
-    return 1 / question.options.length;
+  const match = raw.match(/^~?\s*(-?\d*\.?\d+(?:e[+-]?\d+)?)\s*([a-z%]*)/);
+  if (!match) {
+    return null;
   }
-  if (question.type === "multiple_choice") {
-    return 0.1;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) {
+    return null;
   }
-  return 0.03;
+  const suffix = match[2];
+  if (!suffix || suffix === "%") {
+    return value;
+  }
+  if (MAGNITUDES[suffix]) {
+    return value * MAGNITUDES[suffix];
+  }
+  // A unit typed after the number ("500 gb" when the unit is GB) is fine.
+  return value;
+}
+
+// Within tolerance (default 30%) = right; within 2× = right ballpark.
+export function gradeEstimate(step, value) {
+  if (value == null || !(value > 0) || !(step.answer > 0)) {
+    return { correct: false, score: 0, verdict: "wrong", ratio: null };
+  }
+  const ratio = Math.max(value / step.answer, step.answer / value);
+  const tolerance = step.tolerance ?? 0.3;
+  if (ratio <= 1 + tolerance) {
+    return { correct: true, score: 1, verdict: "correct", ratio };
+  }
+  if (ratio <= 2) {
+    return { correct: false, score: 0.6, verdict: "partial", ratio };
+  }
+  if (ratio <= 10) {
+    return { correct: false, score: 0.2, verdict: "wrong", ratio };
+  }
+  return { correct: false, score: 0, verdict: "wrong", ratio };
+}
+
+export function formatQuantity(value) {
+  if (value == null || !Number.isFinite(value)) {
+    return "—";
+  }
+  const abs = Math.abs(value);
+  const units = [[1e12, "T"], [1e9, "B"], [1e6, "M"], [1e3, "K"]];
+  for (const [size, suffix] of units) {
+    if (abs >= size) {
+      const scaled = value / size;
+      return `${scaled >= 100 ? Math.round(scaled) : Number(scaled.toPrecision(3))}${suffix}`;
+    }
+  }
+  return abs >= 100 ? String(Math.round(value)) : String(Number(value.toPrecision(3)));
+}
+
+// ── fill: blanks in text ────────────────────────────────────────────────────
+
+// "Put a [[cache|caching layer]] in front of the [[database]]" →
+// [{ text }, { blank: 0, answers: ["cache", "caching layer"] }, ...]
+export function parseFill(text) {
+  const parts = [];
+  let blank = 0;
+  let last = 0;
+  const pattern = /\[\[([^\]]+)\]\]/g;
+  let match;
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > last) {
+      parts.push({ text: text.slice(last, match.index) });
+    }
+    parts.push({ blank: blank, answers: match[1].split("|").map((value) => value.trim()).filter(Boolean) });
+    blank += 1;
+    last = pattern.lastIndex;
+  }
+  if (last < text.length) {
+    parts.push({ text: text.slice(last) });
+  }
+  return parts;
+}
+
+export function gradeFill(step, values) {
+  const blanks = parseFill(step.text).filter((part) => part.blank != null);
+  const perBlank = blanks.map((part, index) => {
+    const value = values[index];
+    if (step.bank) {
+      return part.answers.some((answer) => normalizeText(answer) === normalizeText(value));
+    }
+    return part.answers.some((answer) => wordMatches(value, answer));
+  });
+  const right = perBlank.filter(Boolean).length;
+  return { correct: right === blanks.length, score: blanks.length ? right / blanks.length : 0, perBlank, blanks };
+}
+
+// ── api: method + path per purpose ──────────────────────────────────────────
+
+export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+
+// "/api/v1/users/{id}/posts/" → ["user", ":", "post"]
+export function pathSegments(path) {
+  let cleaned = String(path ?? "").trim().toLowerCase();
+  cleaned = cleaned.replace(/^https?:\/\/[^/]+/, "").split("?")[0];
+  const segments = cleaned.split("/").filter(Boolean);
+  while (segments.length && (segments[0] === "api" || /^v\d+$/.test(segments[0]))) {
+    segments.shift();
+  }
+  return segments.map((segment) => (/^[:{<[$]|[}>\]]$|^\d+$/.test(segment) ? ":" : stem(segment.replace(/[-_]/g, ""))));
+}
+
+export function pathMatches(actual, expected) {
+  const candidates = Array.isArray(expected) ? expected : [expected];
+  const got = pathSegments(actual);
+  return candidates.some((candidate) => {
+    const want = pathSegments(candidate);
+    return want.length === got.length && want.every((segment, index) => segment === got[index]);
+  });
+}
+
+// rows: [{ method, path }] aligned with step.endpoints
+export function gradeApi(step, rows) {
+  const perRow = step.endpoints.map((endpoint, index) => {
+    const row = rows[index] || {};
+    const methods = Array.isArray(endpoint.method) ? endpoint.method : [endpoint.method];
+    return {
+      methodOk: methods.includes(String(row.method || "").toUpperCase()),
+      pathOk: pathMatches(row.path, endpoint.path)
+    };
+  });
+  const score = perRow.reduce((sum, row) => sum + (row.methodOk ? 0.5 : 0) + (row.pathOk ? 0.5 : 0), 0) / Math.max(1, perRow.length);
+  return { correct: perRow.every((row) => row.methodOk && row.pathOk), score, perRow };
 }

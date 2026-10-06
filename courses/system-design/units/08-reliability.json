@@ -1,0 +1,713 @@
+{
+  "id": "reliability",
+  "title": "Reliability and operations",
+  "description": "Stay up when parts fail, protect yourself from overload, and know when something breaks.",
+  "lessons": [
+    {
+      "id": "availability",
+      "title": "Availability and redundancy",
+      "summary": "Count the nines, do the series and parallel math, and remove single points of failure.",
+      "minutes": 9,
+      "steps": [
+        {
+          "id": "the-nines",
+          "type": "concept",
+          "title": "Counting nines",
+          "body": "**Availability** is the share of time, or of requests, that a system works. Each extra **nine** cuts allowed downtime by 10×, and usually costs far more to reach. Most user-facing services target three or four nines.",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "99%", "label": "≈ 3.65 days down / year" },
+              { "value": "99.9%", "label": "≈ 8.8 hours / year" },
+              { "value": "99.99%", "label": "≈ 53 minutes / year" },
+              { "value": "99.999%", "label": "≈ 5 minutes / year" }
+            ]
+          }
+        },
+        {
+          "id": "pretest-series",
+          "type": "choice",
+          "prompt": "A request needs both the app tier (99.9% available) and the database (99.9%). About how available is the whole system?",
+          "options": ["About 99.8%", "99.9%", "99.95%", "About 99.9999%"],
+          "answer": "About 99.8%",
+          "why": "The system is up only when both parts are up: 0.999 × 0.999 ≈ 0.998. Every component a request depends on adds its downtime to yours.",
+          "misconceptions": {
+            "99.9%": "That's only true if both always fail at the same moments. Independent outages add up.",
+            "99.95%": "Averaging doesn't apply. The system is down whenever *either* part is down.",
+            "About 99.9999%": "That's the formula for redundant copies, where *either* one is enough. Here you need both."
+          }
+        },
+        {
+          "id": "series-parallel",
+          "type": "concept",
+          "title": "Series and parallel",
+          "body": "**In series**, a request needs every part, so availabilities multiply: two 99.9% parts give about 99.8%.\n\n**In parallel**, any one copy can serve, so the system fails only when all copies fail at once: 1 − (1 − a)ⁿ. Two 99.9% copies give 1 − 0.001², about 99.9999%, if their failures are independent.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "Series: need all", "points": ["A = a₁ × a₂ × …", "99.9% × 99.9% ≈ 99.8%", "Every dependency adds downtime"] },
+            "right": { "title": "Parallel: need any one", "points": ["A = 1 − (1 − a)ⁿ", "Two 99.9% copies ≈ 99.9999%", "Only if failures are independent"] }
+          }
+        },
+        {
+          "id": "series-estimate",
+          "type": "estimate",
+          "prompt": "A request passes through a load balancer, the app tier, and the database, in series. What's the overall availability, in percent?",
+          "given": [
+            ["Load balancer", "99.99%"],
+            ["App tier", "99.9%"],
+            ["Database", "99.9%"],
+            ["Shortcut", "For small numbers, downtime shares roughly add"]
+          ],
+          "answer": 99.79,
+          "unit": "%",
+          "tolerance": 0.0005,
+          "hint": "Add up each component's downtime percentage, then subtract from 100%.",
+          "solution": [
+            "Downtime: 0.01% + 0.1% + 0.1% = 0.21%",
+            "Availability ≈ 100% − 0.21% = 99.79%",
+            "Exact: 0.9999 × 0.999 × 0.999 ≈ 0.9979"
+          ],
+          "why": "Serial availability is set by the weakest links. Making the load balancer even better would barely help; the app tier and database dominate the 0.21% of downtime."
+        },
+        {
+          "id": "parallel-estimate",
+          "type": "estimate",
+          "prompt": "Two independent app servers, each 99% available, sit behind a load balancer, and either one can serve every request. What's the availability of the pair, in percent?",
+          "given": [
+            ["Each server", "99% (down 1% of the time)"],
+            ["Failures", "Independent"],
+            ["Formula", "1 − (1 − a)²"]
+          ],
+          "answer": 99.99,
+          "unit": "%",
+          "tolerance": 0.0005,
+          "hint": "The pair fails only when both are down at once.",
+          "solution": [
+            "Chance both are down at once: 0.01 × 0.01 = 0.0001",
+            "Availability = 1 − 0.0001 = 0.9999 = 99.99%"
+          ],
+          "why": "Two cheap 99% servers beat one premium 99.9% server, *if* they fail independently. Put them on separate hosts, racks, or zones, or one shared failure takes out both."
+        },
+        {
+          "id": "failover-modes",
+          "type": "concept",
+          "title": "Active-passive vs active-active",
+          "body": "Redundancy only helps if traffic can move. **Active-passive**: a standby sits idle and takes over when the primary fails. Simple, but failover takes seconds to minutes and the standby's capacity goes unused.\n\n**Active-active**: every copy serves traffic all the time, and survivors absorb a failed copy's share. No switchover delay, but each copy needs spare headroom.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "Active-passive", "points": ["One copy serves; a standby waits", "Failover: detect, promote, redirect", "Typical for a primary database"] },
+            "right": { "title": "Active-active", "points": ["All copies serve traffic", "A failure just shrinks the pool", "Typical for stateless app servers"] }
+          }
+        },
+        {
+          "id": "headroom",
+          "type": "choice",
+          "context": "Two app servers run active-active behind a load balancer, each at 70% CPU.",
+          "prompt": "One server dies. What happens?",
+          "options": [
+            "The survivor gets 140% of its capacity, overloads, and the outage spreads",
+            "Nothing: the load balancer shifts traffic and all is well",
+            "The load balancer holds requests until a replacement boots",
+            "Half the requests are dropped politely; the rest succeed"
+          ],
+          "answer": "The survivor gets 140% of its capacity, overloads, and the outage spreads",
+          "why": "Plan for **N+1**: enough capacity to lose one copy and still carry peak load. With two servers that means each stays under 50%; with five, under 80%.",
+          "misconceptions": {
+            "Nothing: the load balancer shifts traffic and all is well": "Shifting traffic only works if the survivor can carry it. 70% + 70% is 140% of one server.",
+            "The load balancer holds requests until a replacement boots": "Load balancers don't park requests for minutes. The survivor gets them and slows down or fails.",
+            "Half the requests are dropped politely; the rest succeed": "Nothing drops them politely unless you built load shedding. They pile onto the survivor, and latency climbs for everyone."
+          }
+        },
+        {
+          "id": "failure-domains",
+          "type": "concept",
+          "title": "Zones and regions",
+          "body": "Redundant copies must fail **independently**. Two servers on one rack share its power and switch. An **availability zone** is a separate data center with its own power and network, a millisecond or two from its neighbors: close enough to replicate synchronously. A **region** is far away: it survives disasters, but replication across regions is usually async.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Copies spread across", "Survives", "Latency between copies (approx.)"],
+            "rows": [
+              ["One rack", "A crashed process or server", "< 0.5 ms"],
+              ["Availability zones", "A data center losing power or network", "~1–2 ms"],
+              ["Regions", "A regional outage or disaster", "~30–150 ms"]
+            ]
+          }
+        },
+        {
+          "id": "zone-outage-sort",
+          "type": "sort",
+          "prompt": "Zone A goes dark. Which setups keep serving?",
+          "buckets": ["Keeps serving", "Goes down"],
+          "items": [
+            { "text": "Three app servers, all in zone A", "bucket": "Goes down", "why": "Three copies, but one failure domain." },
+            { "text": "Two app servers on one physical host in zone A", "bucket": "Goes down", "why": "They share a host, and the host shares the zone." },
+            { "text": "A database in zone A with nightly backups in another region", "bucket": "Goes down", "why": "Backups let you rebuild, but restoring takes hours and loses everything since the last backup." },
+            { "text": "Primary database in zone A, synchronous standby in zone B", "bucket": "Keeps serving", "why": "The standby is promoted after a brief failover, with no acknowledged writes lost." },
+            { "text": "A load balancer with targets in zones A and B", "bucket": "Keeps serving", "why": "Health checks drop zone A's targets; zone B carries on." },
+            { "text": "A Redis cluster with replicas spread across three zones", "bucket": "Keeps serving", "why": "Replicas in the surviving zones take over the lost primaries." }
+          ],
+          "why": "Redundancy only counts across the failure you're planning for. Copies in one zone protect against a dead server, not a dead zone."
+        },
+        {
+          "id": "build-redundant",
+          "type": "build",
+          "context": "Today the app runs on one load balancer, one app server, and one database, all in one zone.",
+          "prompt": "Redesign it so that losing any single box, or a whole zone, doesn't take the site down.",
+          "palette": ["client", "dns", "cdn", "lb", "app", "cache", "db_sql", "replica", "queue"],
+          "start": { "nodes": [{ "id": "c", "type": "client", "x": 5, "y": 50 }], "edges": [] },
+          "rules": {
+            "nodes": [
+              { "type": "dns", "why": "DNS hands clients the addresses of healthy load balancers, so traffic can move if one dies." },
+              { "type": "lb", "min": 2, "why": "A single load balancer is itself a single point of failure. Run a pair, in different zones." },
+              { "type": "app", "min": 2, "why": "With at least two app servers, losing one leaves the other serving." },
+              { "type": "replica", "why": "A standby copy of the database, kept in sync, can be promoted when the primary fails." }
+            ],
+            "edges": [
+              { "from": "client", "to": "dns", "why": "Clients look up the service's address before connecting." },
+              { "from": "db_sql", "to": "replica", "why": "Replication keeps the standby current, so a failover loses little or nothing." }
+            ],
+            "paths": [
+              { "through": ["client", "lb", "app", "db_sql"], "why": "Every request still needs a route through a load balancer and an app server to the data." }
+            ],
+            "forbidden": [
+              { "from": "client", "to": "app", "why": "Clients that connect straight to one server lose the load balancer's health checks and failover." }
+            ],
+            "connected": true,
+            "pass": 0.75
+          },
+          "solution": {
+            "nodes": [
+              { "id": "c", "type": "client", "x": 5, "y": 50 },
+              { "id": "dns", "type": "dns", "x": 18, "y": 12 },
+              { "id": "lb1", "type": "lb", "x": 30, "y": 35, "label": "LB (zone A)" },
+              { "id": "lb2", "type": "lb", "x": 30, "y": 72, "label": "LB (zone B)" },
+              { "id": "app1", "type": "app", "x": 52, "y": 35, "label": "App (zone A)" },
+              { "id": "app2", "type": "app", "x": 52, "y": 72, "label": "App (zone B)" },
+              { "id": "db", "type": "db_sql", "x": 74, "y": 35, "label": "Primary (zone A)" },
+              { "id": "rep", "type": "replica", "x": 92, "y": 72, "label": "Standby (zone B)" }
+            ],
+            "edges": [
+              { "from": "c", "to": "dns" },
+              { "from": "c", "to": "lb1" },
+              { "from": "c", "to": "lb2" },
+              { "from": "lb1", "to": "app1" },
+              { "from": "lb1", "to": "app2" },
+              { "from": "lb2", "to": "app1" },
+              { "from": "lb2", "to": "app2" },
+              { "from": "app1", "to": "db" },
+              { "from": "app2", "to": "db" },
+              { "from": "db", "to": "rep" }
+            ]
+          },
+          "why": "Redundancy at every layer: DNS spreads clients over two load balancers, each load balancer reaches every app server, and a standby database waits in another zone. Lose any one box, or a whole zone, and a working path remains after failover."
+        }
+      ]
+    },
+    {
+      "id": "handling-failure",
+      "title": "Handling failure",
+      "summary": "Timeouts, retries with backoff and jitter, circuit breakers, bulkheads, and degrading gracefully.",
+      "minutes": 9,
+      "steps": [
+        {
+          "id": "pretest-hang",
+          "type": "choice",
+          "context": "Your service calls a payment API with no timeout set. The API starts hanging: it doesn't error, it just never replies.",
+          "prompt": "What happens to your service?",
+          "options": [
+            "Its threads and connections fill with waiting calls until it can't serve anything",
+            "Calls fail fast with an error",
+            "Nothing: the calls eventually return",
+            "The load balancer notices and routes around the payment API"
+          ],
+          "answer": "Its threads and connections fill with waiting calls until it can't serve anything",
+          "why": "A slow dependency is often worse than a dead one: every waiting request holds a thread, a connection, and memory. Timeouts turn a hang into a fast error you can handle.",
+          "misconceptions": {
+            "Calls fail fast with an error": "Only if something gives up. With no timeout, a hanging call waits indefinitely.",
+            "Nothing: the calls eventually return": "A hung connection can stay open for minutes or forever, and new requests keep arriving and joining the wait.",
+            "The load balancer notices and routes around the payment API": "Your load balancer sits in front of your service, not your outbound calls. It may keep sending traffic to the stuck servers."
+          }
+        },
+        {
+          "id": "timeouts-retries",
+          "type": "concept",
+          "title": "Timeouts and backoff",
+          "body": "Every network call needs a **timeout**, set from the dependency's real latency, a bit above its p99. Transient failures deserve a **retry**, but only for idempotent operations, and with **exponential backoff**: wait 100 ms, then 200, 400, 800, so a struggling service gets room to recover. Cap the number of attempts.",
+          "visual": {
+            "kind": "bars",
+            "unit": "ms wait",
+            "items": [
+              { "label": "Before retry 1", "value": 100 },
+              { "label": "Before retry 2", "value": 200 },
+              { "label": "Before retry 3", "value": 400 },
+              { "label": "Before retry 4", "value": 800 }
+            ]
+          }
+        },
+        {
+          "id": "safe-retries",
+          "type": "choice",
+          "prompt": "A call timed out, so you don't know whether it ran. Which are safe to retry automatically? Select all that apply.",
+          "options": [
+            "GET /orders/123",
+            "PUT /users/7/email with the new address",
+            "POST /payments with an idempotency key",
+            "POST /payments with no idempotency key"
+          ],
+          "answer": ["GET /orders/123", "PUT /users/7/email with the new address", "POST /payments with an idempotency key"],
+          "why": "A timeout doesn't tell you whether the request ran, so retry only what's safe to repeat: reads, PUTs that set a value, and writes carrying an idempotency key the server uses to drop duplicates.",
+          "misconceptions": {
+            "POST /payments with no idempotency key": "The first attempt may have charged the card before the timeout. Retrying can charge twice."
+          }
+        },
+        {
+          "id": "retry-storms",
+          "type": "concept",
+          "title": "Retry storms and jitter",
+          "body": "Retries add load when a service is weakest. If three layers each make up to 3 attempts, one user request can become 3 × 3 × 3 = 27 calls at the bottom: a **retry storm**. Clients that failed together also retry together, in waves.\n\nRetry at one layer, cap retries with a **budget**, and add **jitter**: randomize each wait.",
+          "visual": {
+            "kind": "bars",
+            "unit": "calls reaching the database",
+            "items": [
+              { "label": "No retries", "value": 1 },
+              { "label": "3 attempts, 1 layer", "value": 3 },
+              { "label": "3 attempts, 2 layers", "value": 9 },
+              { "label": "3 attempts, 3 layers", "value": 27 }
+            ]
+          }
+        },
+        {
+          "id": "why-jitter",
+          "type": "text",
+          "prompt": "Why add random jitter to exponential backoff? Explain what goes wrong without it.",
+          "concepts": [
+            { "label": "Without jitter, clients retry in sync", "any": ["re:\\b(same|exact|identical) (time|moment|instant|delay)", "re:\\b(at once|together|in waves|in unison|lockstep)\\b", "synchron*", "simultaneous*", "in sync"] },
+            { "label": "Jitter spreads retries out over time", "any": ["spread*", "stagger*", "desynchron*", "smooth*", "random* delay*", "random* retr*"] },
+            { "label": "Avoids load spikes on the struggling service", "any": ["thundering herd", "spike*", "overload*", "overwhelm*", "burst*", "retry storm"] },
+            { "label": "Gives the service room to recover", "any": ["recover*", "breathing room", "room to", "come back", "heal*", "catch up"] }
+          ],
+          "pass": 3,
+          "model": "Without jitter, every client that failed at the same moment backs off by exactly the same amount, so they all retry in sync. The recovering service gets hit by synchronized spikes, a thundering herd, and falls over again. Random jitter spreads the retries out over time, which smooths the load and gives the service room to recover.",
+          "why": "Backoff alone spaces out each client's retries, but identical clients still retry at identical moments. Jitter breaks that alignment, turning a wall of retries into a steady trickle."
+        },
+        {
+          "id": "circuit-breaker",
+          "type": "concept",
+          "title": "Circuit breakers",
+          "body": "A **circuit breaker** wraps calls to a dependency. While **closed**, calls flow and failures are counted. Past a threshold, say 50% errors over 10 seconds, it trips **open**: calls fail instantly without touching the dependency. After a cool-down it goes **half-open** and lets a few trial calls through. Success closes it; failure re-opens it.",
+          "visual": {
+            "kind": "table",
+            "columns": ["State", "What happens to calls"],
+            "rows": [
+              ["Closed", "Pass through; failures are counted"],
+              ["Open", "Fail instantly, no network call"],
+              ["Half-open", "A few trial calls go through"]
+            ]
+          }
+        },
+        {
+          "id": "breaker-order",
+          "type": "order",
+          "prompt": "A dependency fails, then recovers. Put the circuit breaker's behavior in order.",
+          "items": [
+            "Closed: calls flow and errors are counted",
+            "Error rate crosses the threshold, so the breaker opens",
+            "Open: calls fail instantly; the dependency gets no traffic",
+            "Cool-down expires, so the breaker goes half-open",
+            "A few trial calls succeed",
+            "Breaker closes and normal traffic resumes"
+          ],
+          "why": "Open protects both sides: callers fail fast instead of waiting, and the dependency gets quiet time to recover. Half-open tests recovery with a trickle before letting full traffic back."
+        },
+        {
+          "id": "containment",
+          "type": "concept",
+          "title": "Contain the damage",
+          "body": "**Bulkheads** give each dependency its own thread or connection pool, so one slow dependency can't drain them all. **Graceful degradation** drops optional features when their dependency fails: show the product page without recommendations. **Load shedding** rejects some requests early, with a quick 503, when overloaded, so the rest still finish fast.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "One shared pool", "points": ["200 threads for every dependency", "Slow recommendations hold all 200", "Checkout can't get a thread: site down"] },
+            "right": { "title": "Bulkheads", "points": ["Recommendations: 40 threads; checkout: 100", "Recommendations' pool fills and fails fast", "Checkout keeps working"] }
+          }
+        },
+        {
+          "id": "match-failure-pattern",
+          "type": "match",
+          "prompt": "Match each failure to the pattern that handles it.",
+          "pairs": [
+            ["A dependency hangs and your threads pile up", "Timeout"],
+            ["A dependency is down, and every call wastes 2 s finding out", "Circuit breaker"],
+            ["Thousands of clients retry at the same instant", "Backoff with jitter"],
+            ["A slow reporting service drains the pool checkout needs", "Bulkhead"],
+            ["A flash sale brings 3× more traffic than you can serve", "Load shedding"]
+          ],
+          "why": "Each pattern targets one failure shape: timeouts bound waiting, breakers stop calling what's dead, jitter breaks up synchronized retries, bulkheads isolate resources, and load shedding protects capacity."
+        },
+        {
+          "id": "degrade",
+          "type": "choice",
+          "context": "The recommendations service is down. The product page normally shows a \"You might also like\" row.",
+          "prompt": "What should the product page do?",
+          "options": [
+            "Render without the row, or with a cached bestseller list",
+            "Show an error page until recommendations recover",
+            "Retry recommendations until they respond",
+            "Wait up to 30 seconds for recommendations, then render"
+          ],
+          "answer": "Render without the row, or with a cached bestseller list",
+          "why": "Graceful degradation: decide ahead of time which features are optional, and serve the core experience without them. Users rarely notice a missing row; they always notice a broken page.",
+          "misconceptions": {
+            "Show an error page until recommendations recover": "That turns an optional feature's outage into a full outage, even though the price, cart, and buy button all work.",
+            "Retry recommendations until they respond": "Retrying a dead dependency adds load and latency; the page should move on without it.",
+            "Wait up to 30 seconds for recommendations, then render": "Users leave long before 30 seconds. Optional calls deserve short timeouts."
+          }
+        }
+      ]
+    },
+    {
+      "id": "rate-limiting",
+      "title": "Rate limiting",
+      "summary": "Protect shared capacity: limiting algorithms, where to enforce them, and limits across many servers.",
+      "minutes": 10,
+      "steps": [
+        {
+          "id": "pretest-why-limit",
+          "type": "choice",
+          "context": "One customer's buggy script sends 50K requests/sec to your API. The whole API can handle 20K/sec.",
+          "prompt": "Without a rate limiter, who suffers?",
+          "options": [
+            "Every customer, because the script eats shared capacity",
+            "Only the customer running the script",
+            "Nobody: autoscaling absorbs it",
+            "Only the database"
+          ],
+          "answer": "Every customer, because the script eats shared capacity",
+          "why": "Rate limiting protects shared capacity, keeps usage fair between clients, blunts abuse like credential stuffing and scraping, and caps the bill from runaway callers.",
+          "misconceptions": {
+            "Only the customer running the script": "Their requests share servers, connections, and the database with everyone else's.",
+            "Nobody: autoscaling absorbs it": "Scaling takes minutes, has limits, and means paying to serve a bug.",
+            "Only the database": "Every layer is shared: load balancers, app servers, caches, and the database all saturate."
+          }
+        },
+        {
+          "id": "buckets",
+          "type": "concept",
+          "title": "Token bucket and leaky bucket",
+          "body": "**Token bucket**: each client's bucket holds up to *capacity* tokens and refills at a steady *rate*. Every request spends a token; an empty bucket means rejection. Bursts up to the capacity pass, but the average is held to the rate.\n\n**Leaky bucket**: requests join a queue that drains at a fixed rate. Output is perfectly smooth; bursts wait or overflow.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "Token bucket", "points": ["Bursts allowed, up to capacity", "Average held to the refill rate", "Two numbers per client: tokens, last refill"] },
+            "right": { "title": "Leaky bucket", "points": ["Constant output rate", "Bursts queue up or get dropped", "Good in front of fixed-capacity workers"] }
+          }
+        },
+        {
+          "id": "token-bucket-estimate",
+          "type": "estimate",
+          "prompt": "A client starts with a full bucket and sends requests as fast as it can for 20 seconds. How many are accepted?",
+          "given": [
+            ["Bucket capacity", "100 tokens (starts full)"],
+            ["Refill rate", "10 tokens/sec"],
+            ["Duration", "20 seconds"],
+            ["Cost", "1 token per request"]
+          ],
+          "answer": 300,
+          "unit": "requests",
+          "tolerance": 0.3,
+          "hint": "Count the initial burst and the refills separately.",
+          "solution": [
+            "Burst: the full bucket allows 100 requests at once",
+            "Sustained: refills add 10 × 20 = 200 more",
+            "Total = 100 + 200 = 300 requests"
+          ],
+          "why": "Capacity sets the largest burst; the refill rate sets the long-run average. Over an hour this client would average almost exactly 10 requests/sec."
+        },
+        {
+          "id": "window-algorithms",
+          "type": "concept",
+          "title": "Window counters",
+          "body": "**Fixed window**: count requests per calendar minute and reset at :00. One counter, but a client can send the full limit at 0:59 and again at 1:00. **Sliding window log**: store every request's timestamp; exact, but memory grows with traffic. **Sliding window counter**: weight the previous window's count by its overlap; nearly exact with two counters.",
+          "visual": {
+            "kind": "bars",
+            "unit": "requests in the worst 60 s, limit 100/min",
+            "items": [
+              { "label": "Fixed window", "value": 200 },
+              { "label": "Sliding window log", "value": 100 },
+              { "label": "Sliding window counter (≈)", "value": 100 }
+            ]
+          }
+        },
+        {
+          "id": "match-algorithms",
+          "type": "match",
+          "prompt": "Match each algorithm to its defining property.",
+          "pairs": [
+            ["Token bucket", "Allows a burst, then holds the client to an average rate"],
+            ["Leaky bucket", "Releases requests at a perfectly steady pace"],
+            ["Fixed window counter", "Can let through 2× the limit around a window boundary"],
+            ["Sliding window log", "Exact, but stores a timestamp for every request"],
+            ["Sliding window counter", "Approximates a rolling window with just two counters"]
+          ],
+          "why": "They trade memory for accuracy and burst handling. Token bucket and sliding window counter are the usual production picks: cheap, and accurate enough."
+        },
+        {
+          "id": "distributed-limits",
+          "type": "concept",
+          "title": "Where limits live",
+          "body": "Enforce limits at the edge, in an **API gateway** or a dedicated **rate limiter** in front of the app, so rejected requests cost almost nothing. With many gateway instances, local counters each see only part of a client's traffic, so keep counts in a shared **Redis**, updated atomically: `INCR` plus `EXPIRE`, or a Lua script for a token bucket.",
+          "visual": {
+            "kind": "flow",
+            "steps": ["Client", "Gateway", "Check counter in Redis", "Under limit: app", "Over limit: 429"]
+          }
+        },
+        {
+          "id": "race-condition",
+          "type": "choice",
+          "context": "Two gateway instances handle requests from the same client at the same moment. Each reads the client's counter from Redis (99, limit 100), adds 1 in its own code, and writes back 100.",
+          "prompt": "What went wrong, and what fixes it?",
+          "options": [
+            "A read-modify-write race counted two requests as one; use Redis's atomic INCR or a Lua script",
+            "Redis lost a write; turn on persistence",
+            "The limit is too low; raise it to 200",
+            "Each gateway should keep its own local counter instead"
+          ],
+          "answer": "A read-modify-write race counted two requests as one; use Redis's atomic INCR or a Lua script",
+          "why": "GET-then-SET isn't atomic, so concurrent requests overwrite each other's increments. INCR increments and returns the new value in one step on the Redis server; a Lua script runs multi-step logic, like refilling a token bucket, atomically too.",
+          "misconceptions": {
+            "Redis lost a write; turn on persistence": "Both writes succeeded. They just wrote a value computed from the same stale read.",
+            "The limit is too low; raise it to 200": "The bug lets clients exceed whatever limit you set.",
+            "Each gateway should keep its own local counter instead": "Then a client spread across 10 gateways could get up to 10× its limit."
+          }
+        },
+        {
+          "id": "limit-response",
+          "type": "concept",
+          "title": "Saying no politely",
+          "body": "Reject over-limit requests with **HTTP 429 Too Many Requests** and a **Retry-After** header saying when to come back. Many APIs also send headers like `X-RateLimit-Remaining`, so good clients slow down before hitting the wall. Decide in advance whether to fail **open** (let traffic through) or **closed** if the limiter itself goes down.",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "429", "label": "Too Many Requests: this client is over quota" },
+              { "value": "Retry-After", "label": "seconds (or a date) until it may retry" },
+              { "value": "503", "label": "Service Unavailable: the server is overloaded" }
+            ]
+          }
+        },
+        {
+          "id": "status-fill",
+          "type": "fill",
+          "text": "The client has used up its quota, so the gateway returns [[429]] with a [[Retry-After]] header telling it when to try again. If instead the whole service were overloaded for everyone, shedding load with [[503]] would be the better signal.",
+          "bank": ["429", "Retry-After", "503", "401", "Cache-Control", "500"],
+          "why": "429 says \"you, specifically, are sending too much\"; 503 says \"the server can't cope right now\". Retry-After works with both and keeps polite clients from hammering you."
+        },
+        {
+          "id": "build-rate-limiter",
+          "type": "build",
+          "context": "A public API runs on many gateway instances behind one hostname. Each client gets 1,000 requests per minute, no matter which instance it hits.",
+          "prompt": "Add per-client rate limiting that every instance enforces consistently.",
+          "palette": ["client", "cdn", "lb", "gateway", "rate_limiter", "cache", "app", "db_sql", "queue", "worker"],
+          "start": { "nodes": [{ "id": "c", "type": "client", "x": 5, "y": 50 }], "edges": [] },
+          "rules": {
+            "nodes": [
+              { "type": "rate_limiter", "why": "The rate limiter decides, per client, whether a request is under quota." },
+              { "type": "cache", "why": "A shared in-memory store like Redis holds the counters, so every instance sees the same count." }
+            ],
+            "edges": [
+              { "from": "entry", "to": "rate_limiter", "why": "The gateway checks the limit on every request, before any app work happens." },
+              { "from": "rate_limiter", "to": "cache", "why": "Counters live in Redis and are updated atomically, so many limiter instances agree." },
+              { "from": "app", "to": "db", "why": "Allowed requests still need to reach the data." }
+            ],
+            "paths": [
+              { "through": ["client", "entry", "app"], "why": "Requests come in through the gateway or load balancer, where limits are enforced." }
+            ],
+            "forbidden": [
+              { "from": "client", "to": "app", "why": "A direct route from client to app would skip the rate limiter entirely." }
+            ],
+            "connected": true,
+            "pass": 0.8
+          },
+          "solution": {
+            "nodes": [
+              { "id": "c", "type": "client", "x": 5, "y": 50 },
+              { "id": "gw", "type": "gateway", "x": 25, "y": 50 },
+              { "id": "rl", "type": "rate_limiter", "x": 45, "y": 18 },
+              { "id": "redis", "type": "cache", "x": 72, "y": 18, "label": "Redis counters" },
+              { "id": "app", "type": "app", "x": 55, "y": 70 },
+              { "id": "db", "type": "db_sql", "x": 85, "y": 70 }
+            ],
+            "edges": [
+              { "from": "c", "to": "gw" },
+              { "from": "gw", "to": "rl" },
+              { "from": "rl", "to": "redis" },
+              { "from": "gw", "to": "app" },
+              { "from": "app", "to": "db" }
+            ]
+          },
+          "why": "The gateway is the one front door, and it asks the limiter before doing any work. Because the limiter keeps counts in shared Redis rather than in each instance's memory, a client gets the same limit whichever instance it hits."
+        }
+      ]
+    },
+    {
+      "id": "observability-slos",
+      "title": "Observability and SLOs",
+      "summary": "Metrics, logs, and traces; SLIs, SLOs, and error budgets; alerting that matters; and recovering from disaster.",
+      "minutes": 9,
+      "steps": [
+        {
+          "id": "pretest-which-tool",
+          "type": "choice",
+          "context": "Checkout's p99 latency jumped from 300 ms to 4 s. Each request touches the gateway, cart, pricing, and payments services.",
+          "prompt": "What shows you fastest which downstream call is slow?",
+          "options": [
+            "A distributed trace of a slow request",
+            "A CPU dashboard for each service",
+            "Grepping each service's logs",
+            "An external uptime check"
+          ],
+          "answer": "A distributed trace of a slow request",
+          "why": "A trace follows one request through every service as a tree of timed spans, so the slow hop stands out at a glance.",
+          "misconceptions": {
+            "A CPU dashboard for each service": "Metrics show *that* something is slow and roughly where, but they're aggregates; they can't follow one request across services.",
+            "Grepping each service's logs": "Logs hold the details, but each service logs separately. Stitching one request together by hand is exactly what tracing automates.",
+            "An external uptime check": "An uptime check says the site responds. It can't say which internal hop is slow."
+          }
+        },
+        {
+          "id": "three-pillars",
+          "type": "concept",
+          "title": "Metrics, logs, traces",
+          "body": "**Metrics** are numbers over time: request rate, error rate, p99 latency. Cheap to keep and great for dashboards and alerts, they tell you *that* something is wrong. **Logs** are timestamped event records: *what* happened to this request. **Traces** follow one request across services as timed spans: *where* the time went.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Pillar", "Answers", "Example"],
+            "rows": [
+              ["Metrics", "Is something wrong? How much?", "5xx rate: 2.1%"],
+              ["Logs", "What exactly happened?", "order 9142: card declined"],
+              ["Traces", "Where did the time go?", "payments span: 3.8 s"]
+            ]
+          }
+        },
+        {
+          "id": "sort-signals",
+          "type": "sort",
+          "prompt": "Metric, log, or trace?",
+          "buckets": ["Metric", "Log", "Trace"],
+          "items": [
+            { "text": "p99 latency of /checkout over the last hour", "bucket": "Metric" },
+            { "text": "HTTP 500s per minute", "bucket": "Metric" },
+            { "text": "Memory used by each cache node", "bucket": "Metric" },
+            { "text": "`ERROR user=42 order=9142 card declined: insufficient funds`", "bucket": "Log", "why": "One event, with the details of what happened." },
+            { "text": "The stack trace printed when the payment handler threw", "bucket": "Log", "why": "Despite the name, a stack trace belongs to a log entry: one moment in one process, not a request's path across services." },
+            { "text": "Gateway 5 ms → cart 20 ms → payments 3.8 s, for one request", "bucket": "Trace" },
+            { "text": "Spans showing which service a slow request waited on", "bucket": "Trace" }
+          ],
+          "why": "Metrics aggregate many events into numbers, logs record individual events, and traces connect one request's events across services."
+        },
+        {
+          "id": "slos",
+          "type": "concept",
+          "title": "SLIs, SLOs, SLAs",
+          "body": "An **SLI** is a measured signal users feel, like the share of requests that succeed in under 300 ms. An **SLO** is your target for it: 99.9% over 30 days. An **SLA** is a contract with penalties, set looser than the SLO. The gap to 100% is your **error budget**: spend it on releases; slow down when it's gone.",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "99%", "label": "≈ 7.2 hours of failure / 30 days" },
+              { "value": "99.9%", "label": "≈ 43 minutes / 30 days" },
+              { "value": "99.99%", "label": "≈ 4.3 minutes / 30 days" }
+            ]
+          }
+        },
+        {
+          "id": "error-budget",
+          "type": "estimate",
+          "prompt": "Your SLO is 99.95% availability over 30 days. How many minutes of downtime does the error budget allow?",
+          "given": [
+            ["SLO", "99.95% over 30 days"],
+            ["Minutes per day", "1,440"],
+            ["Window", "30 days"]
+          ],
+          "answer": 21.6,
+          "unit": "minutes",
+          "tolerance": 0.3,
+          "hint": "Find the minutes in 30 days, then take 0.05% of them.",
+          "solution": [
+            "30 days × 1,440 min = 43,200 minutes",
+            "Budget = 100% − 99.95% = 0.05%",
+            "0.05% × 43,200 = 21.6 ≈ 22 minutes"
+          ],
+          "why": "Going from 99.9% to 99.95% halves the budget, from about 43 minutes to about 22. A single slow rollback can spend all of it, which is why tighter SLOs demand safer releases."
+        },
+        {
+          "id": "symptoms-not-causes",
+          "type": "concept",
+          "title": "Alert on symptoms",
+          "body": "Page people for **symptoms users feel**: errors, latency, the error budget burning fast. Don't page for **causes** like high CPU or one dead replica, which often hurt no one. Every page should be urgent, actionable, and real; noisy alerts teach people to ignore them. Causes belong on dashboards, for diagnosing a symptom once someone's looking.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "Page on symptoms", "points": ["5xx rate above 1% for 5 minutes", "p99 latency above the SLO", "Error budget burning 10× too fast"] },
+            "right": { "title": "Dashboard the causes", "points": ["CPU at 90% while latency is fine", "One of five replicas down, no user impact", "A dependency retrying successfully"] }
+          }
+        },
+        {
+          "id": "what-pages",
+          "type": "choice",
+          "prompt": "Which of these should wake the on-call engineer at 3 a.m.?",
+          "options": [
+            "Checkout error rate above 2% for 5 minutes",
+            "CPU on one app server at 95%",
+            "A single 500 error in the logs",
+            "A log server's disk at 70%"
+          ],
+          "answer": "Checkout error rate above 2% for 5 minutes",
+          "why": "Page only for user-visible symptoms that need action now. Everything else goes to a dashboard or a ticket, so a page always means something.",
+          "misconceptions": {
+            "CPU on one app server at 95%": "High CPU may be harmless; the server is just busy. If it hurts users, the error-rate or latency alert fires anyway.",
+            "A single 500 error in the logs": "At scale some requests always fail. Alert on rates measured against your SLO, not on single events.",
+            "A log server's disk at 70%": "Worth a ticket for working hours, not a page: nothing is broken yet."
+          }
+        },
+        {
+          "id": "backups",
+          "type": "concept",
+          "title": "Backups, RPO, and RTO",
+          "body": "Replicas copy mistakes instantly, so a bad `DELETE` replicates too: you still need **backups**. Two numbers set the plan. **RPO** (recovery point objective): how much recent data you can afford to lose. **RTO** (recovery time objective): how long recovery may take. A backup you've never restored is a hope, not a plan: run **disaster recovery drills**.",
+          "visual": {
+            "kind": "flow",
+            "steps": ["Last good backup", "Writes here are lost (RPO)", "Disaster", "Restoring (RTO)", "Back online"]
+          }
+        },
+        {
+          "id": "rpo-rto",
+          "type": "choice",
+          "context": "Backups run nightly at 2 a.m. A full restore takes 4 hours. At 6 p.m., a bad migration corrupts the database.",
+          "prompt": "How much data is lost, and how long is the database down?",
+          "options": [
+            "About 16 hours of data lost; about 4 hours down",
+            "About 4 hours of data lost; about 16 hours down",
+            "No data lost; about 4 hours down",
+            "About 24 hours of data lost; about 4 hours down"
+          ],
+          "answer": "About 16 hours of data lost; about 4 hours down",
+          "why": "Data loss runs from the last good backup (2 a.m.) to the failure (6 p.m.): 16 hours. To shrink RPO, archive the write-ahead log continuously for point-in-time recovery; to shrink RTO, practice restores and speed them up, for example with storage snapshots.",
+          "misconceptions": {
+            "About 4 hours of data lost; about 16 hours down": "Swapped. Data loss is the gap since the last backup (RPO); downtime is how long the restore takes (RTO).",
+            "No data lost; about 4 hours down": "Everything written since 2 a.m. isn't in the backup.",
+            "About 24 hours of data lost; about 4 hours down": "24 hours is the worst case for nightly backups in general. Here the failure came 16 hours after the last one."
+          }
+        },
+        {
+          "id": "match-terms",
+          "type": "match",
+          "prompt": "Match each term to its definition.",
+          "pairs": [
+            ["SLI", "A measured signal, like the share of requests served in under 300 ms"],
+            ["SLO", "Your internal target for that signal over a time window"],
+            ["SLA", "A customer contract with penalties if you miss it"],
+            ["RPO", "How much recent data you can afford to lose"],
+            ["RTO", "How long recovery is allowed to take"]
+          ],
+          "why": "SLI, SLO, and SLA run from measurement to target to promise. RPO and RTO are the two targets every backup and disaster recovery plan must meet."
+        }
+      ]
+    }
+  ]
+}

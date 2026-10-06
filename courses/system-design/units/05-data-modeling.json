@@ -1,0 +1,690 @@
+{
+  "id": "data-modeling",
+  "title": "Data modeling and storage",
+  "description": "Pick the right database, shape tables and keys around your queries, and put files, search, and caches where they belong.",
+  "lessons": [
+    {
+      "id": "sql-or-nosql",
+      "title": "SQL or NoSQL?",
+      "summary": "Relational databases versus the four NoSQL families, and how to choose by access pattern instead of hype.",
+      "minutes": 8,
+      "steps": [
+        {
+          "id": "relational-scale-myth",
+          "type": "choice",
+          "prompt": "Which statement about relational (SQL) databases is **true**?",
+          "options": [
+            "They can't scale beyond a single machine",
+            "They scale out with read replicas and sharding, but cross-shard joins and transactions get harder",
+            "They can't store semi-structured data like JSON",
+            "They're always slower than NoSQL stores"
+          ],
+          "answer": "They scale out with read replicas and sharding, but cross-shard joins and transactions get harder",
+          "why": "Replicas scale reads, sharding (Vitess for MySQL, Citus for Postgres) scales writes, and distributed SQL databases like Spanner and CockroachDB shard automatically. What gets harder is joining or transacting across shards.",
+          "misconceptions": {
+            "They can't scale beyond a single machine": "A common myth. Replicas, sharding, and distributed SQL all spread relational data across many machines. It just takes more deliberate work than in most NoSQL stores.",
+            "They can't store semi-structured data like JSON": "Postgres (JSONB) and MySQL both have native JSON columns, and Postgres can even index fields inside the JSON.",
+            "They're always slower than NoSQL stores": "Speed depends on the access pattern. An indexed lookup is fast in either; NoSQL wins when its data model fits the query better or the scale needs built-in partitioning."
+          }
+        },
+        {
+          "id": "relational-model",
+          "type": "concept",
+          "title": "Relational databases",
+          "body": "A **relational database** (Postgres, MySQL) stores rows in tables with a fixed **schema**. Keys link tables, and **joins** combine them at query time, so you can answer questions you didn't plan for. **Secondary indexes** speed up lookups on any column, and **ACID transactions** make multi-row changes safe.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Property", "Guarantee", "Example"],
+            "rows": [
+              ["Atomicity", "All of a transaction's writes happen, or none do", "Debit and credit both apply, or neither"],
+              ["Consistency", "Invariants and constraints still hold afterwards", "No negative balance, no order without a customer"],
+              ["Isolation", "Concurrent transactions act as if run one at a time (at the strictest level)", "Two withdrawals can't both spend the same $100"],
+              ["Durability", "Once committed, data survives crashes", "A confirmed transfer is still there after a power cut"]
+            ]
+          }
+        },
+        {
+          "id": "acid-crash",
+          "type": "choice",
+          "context": "A transfer debits account A, then the database server crashes before crediting account B. After the restart, the debit has disappeared too.",
+          "prompt": "Which ACID property undid the debit?",
+          "options": ["Atomicity", "Consistency", "Isolation", "Durability"],
+          "answer": "Atomicity",
+          "why": "Atomicity makes a transaction all-or-nothing. The transfer never committed, so on recovery the database discards its partial write and money is never half-moved.",
+          "misconceptions": {
+            "Durability": "Durability protects **committed** data. This transaction never committed, so what saved you is atomicity undoing its half-finished write.",
+            "Consistency": "Conserving money is the invariant you want, but atomicity is the mechanism that undoes the half-finished transfer.",
+            "Isolation": "Isolation stops concurrent transactions from seeing each other's in-progress work. It isn't about recovering from a crash."
+          }
+        },
+        {
+          "id": "nosql-families",
+          "type": "concept",
+          "title": "Four NoSQL families",
+          "body": "**NoSQL** isn't one thing. Each family gives up some relational flexibility, usually joins and ad-hoc queries, for a data model that serves one shape of access very well. Most also partition data across machines by default.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Family", "Data model", "Examples", "Great for"],
+            "rows": [
+              ["Key-value", "Opaque value looked up by key", "Redis, DynamoDB", "Sessions, carts, caching"],
+              ["Document", "Self-contained JSON-like documents", "MongoDB, Couchbase", "Catalogs, profiles, varied fields"],
+              ["Wide-column", "Rows grouped by partition key, sorted within it", "Cassandra, Bigtable, HBase", "Huge write volumes, time series"],
+              ["Graph", "Nodes and edges", "Neo4j, Amazon Neptune", "Multi-hop relationships"]
+            ]
+          }
+        },
+        {
+          "id": "workload-to-family",
+          "type": "match",
+          "prompt": "Match each workload to the store family that fits it best.",
+          "pairs": [
+            ["Look up a logged-in user's session by session ID, thousands of times a second", "Key-value store"],
+            ["A product catalog where shoes, TVs, and books each have different attributes", "Document store"],
+            ["Billions of sensor readings a day, read back by device and time range", "Wide-column store"],
+            ["\"People you may know\": friends of friends, three hops out", "Graph database"],
+            ["Place an order: decrement stock, charge the card, create the order, all or nothing", "Relational database"]
+          ],
+          "why": "Match the data model to the dominant access pattern: one key → key-value; a self-contained record with varied fields → document; huge append-heavy writes read by key and range → wide-column; multi-hop traversals → graph; atomic multi-row updates over related data → relational."
+        },
+        {
+          "id": "choose-by-need",
+          "type": "concept",
+          "title": "Choose by need, not hype",
+          "body": "Ask three questions. **What are the access patterns?** **How strong must consistency be?** **What scale**: data size, writes per second? Default to relational when data is related and correctness matters. Reach for a NoSQL family when one access pattern dominates at a volume or shape SQL handles awkwardly. Big systems mix both (*polyglot persistence*).",
+          "visual": {
+            "kind": "compare",
+            "left": {
+              "title": "Relational (SQL)",
+              "points": ["Schema enforced on write", "Joins and ad-hoc queries", "Multi-row ACID transactions", "Scale up first; sharding takes work"]
+            },
+            "right": {
+              "title": "NoSQL",
+              "points": ["Flexible schema, interpreted on read", "Queries designed up front, around keys", "Transactions often limited to one item or partition", "Partitioning built in; add nodes to scale"]
+            }
+          }
+        },
+        {
+          "id": "ledger-vs-sessions",
+          "type": "choice",
+          "context": "Two systems. A **bank ledger** moves money between accounts and must never lose or double-count a cent. A **session store** is read on every web request to answer \"who is this user?\", and entries expire after 30 minutes.",
+          "prompt": "Which pairing fits best?",
+          "options": [
+            "Ledger → relational database; sessions → key-value store",
+            "Ledger → key-value store; sessions → relational database",
+            "Ledger → wide-column store; sessions → key-value store",
+            "Both → document store, so the schema can evolve"
+          ],
+          "answer": "Ledger → relational database; sessions → key-value store",
+          "why": "The ledger needs multi-row ACID transactions, constraints, and auditable queries: relational territory. Sessions are single-key reads and writes with expiry, which a key-value store like Redis or DynamoDB (with a TTL) serves in a few milliseconds or less.",
+          "misconceptions": {
+            "Ledger → key-value store; sessions → relational database": "Backwards. A transfer must update two balances atomically and stay auditable with ad-hoc queries, while sessions never need a join.",
+            "Ledger → wide-column store; sessions → key-value store": "Sessions are right, but wide-column stores like Cassandra have traditionally offered only single-partition transactions and usually run with tunable, often eventual, consistency: risky for moving money.",
+            "Both → document store, so the schema can evolve": "Schema flexibility isn't the deciding need for either one. The ledger needs transactional guarantees; the session store needs fast key lookups with expiry."
+          }
+        },
+        {
+          "id": "order-store-choice",
+          "type": "text",
+          "context": "An e-commerce site is designing its **orders** system. Placing an order reserves inventory, records the payment, and creates the order with its line items. Finance runs ad-hoc reports on orders every week.",
+          "prompt": "Which kind of database would you choose for orders, and why? Answer in 2–4 sentences.",
+          "concepts": [
+            { "label": "Picks a relational (SQL) database", "any": ["relational", "sql", "postgr*", "mysql", "aurora", "spanner"] },
+            { "label": "ACID transactions: every step commits or none do", "any": ["acid", "transaction*", "atomic*", "commit*", "rollback", "roll back"] },
+            { "label": "Strong consistency: no overselling or double charges", "any": ["consisten*", "oversell*", "double charg*", "integrity", "constraint*", "correct*"] },
+            { "label": "Related data and ad-hoc queries via joins", "any": ["join*", "foreign key", "related", "relationship*", "ad hoc", "report*"] }
+          ],
+          "pass": 3,
+          "model": "I'd use a relational database such as Postgres. Placing an order must reserve stock, record payment, and create the order in one ACID transaction, so either everything commits or it all rolls back. That keeps the data consistent, so we never oversell or double-charge, and because orders, customers, and products are related data, joins make finance's ad-hoc reports easy.",
+          "why": "Orders are the textbook relational workload: atomic multi-row updates, constraints that protect money and stock, and relationships queried in ways you can't predict. A NoSQL store can work (DynamoDB has transactions), but you'd give up ad-hoc queries for scale you probably don't need yet."
+        }
+      ]
+    },
+    {
+      "id": "schemas-keys-indexes",
+      "title": "Schemas, keys, and indexes",
+      "summary": "Model entities and relationships, choose primary keys, and add indexes only where they pay for themselves.",
+      "minutes": 8,
+      "steps": [
+        {
+          "id": "many-to-many-pretest",
+          "type": "choice",
+          "prompt": "Students take many courses, and each course has many students. How do you store who takes what in a relational database?",
+          "options": [
+            "A join table `enrollments(student_id, course_id)` with one row per pairing",
+            "A `course_ids` column on `students` holding a comma-separated list",
+            "A `student_id` column on `courses`",
+            "A copy of each course's row for every enrolled student"
+          ],
+          "answer": "A join table `enrollments(student_id, course_id)` with one row per pairing",
+          "why": "A many-to-many relationship gets its own table: each row pairs one student with one course, both columns are foreign keys, and the pair is the primary key. \"Courses for a student\" and \"students in a course\" are then both simple indexed queries.",
+          "misconceptions": {
+            "A `course_ids` column on `students` holding a comma-separated list": "A list packed into one column can't be joined or indexed properly, can't enforce foreign keys, and has to be parsed by the app.",
+            "A `student_id` column on `courses`": "That allows only one student per course, so it models one-to-many, not many-to-many.",
+            "A copy of each course's row for every enrolled student": "Duplicating course data per student means every course edit must touch many rows, and the copies drift apart."
+          }
+        },
+        {
+          "id": "relationships",
+          "type": "concept",
+          "title": "Entities and relationships",
+          "body": "An **entity** is a thing you store, like a user, order, or product, and it usually gets its own table. A **foreign key** is a column holding another table's primary key. Relationships come in three shapes, each with a standard way to store it.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Relationship", "Example", "How to store it"],
+            "rows": [
+              ["1:1", "user ↔ profile", "Same table, or a foreign key marked UNIQUE"],
+              ["1:N", "customer → orders", "Foreign key on the many side (orders.customer_id)"],
+              ["N:M", "students ↔ courses", "A join table holding both foreign keys"]
+            ]
+          }
+        },
+        {
+          "id": "blog-fields",
+          "type": "sort",
+          "context": "A blog: users write posts, and each post can have many tags. A tag such as \"postgres\" is shared by many posts.",
+          "prompt": "Which table does each column belong in?",
+          "buckets": ["users", "posts", "tags", "post_tags"],
+          "items": [
+            { "text": "`email`", "bucket": "users" },
+            { "text": "`password_hash`", "bucket": "users" },
+            { "text": "`author_id` (who wrote it)", "bucket": "posts", "why": "One user writes many posts (1:N), so the foreign key lives on the many side." },
+            { "text": "`title`", "bucket": "posts" },
+            { "text": "`published_at`", "bucket": "posts" },
+            { "text": "`name` (e.g. \"postgres\")", "bucket": "tags", "why": "Each tag's name is stored once, so renaming a tag touches one row." },
+            { "text": "`post_id` + `tag_id` pair", "bucket": "post_tags", "why": "Posts ↔ tags is many-to-many, so each pairing is a row in the join table." }
+          ],
+          "why": "Each fact lives with the entity it describes. A 1:N link is a foreign key on the many side, and an N:M link gets its own join table."
+        },
+        {
+          "id": "primary-keys",
+          "type": "concept",
+          "title": "Primary keys",
+          "body": "Every row needs a **primary key**: unique, never null, and ideally never changing. Most schemas use a **surrogate key**, an ID with no business meaning, and keep natural values like email in separate UNIQUE columns. The common choices:",
+          "visual": {
+            "kind": "table",
+            "columns": ["Key", "Upside", "Downside"],
+            "rows": [
+              ["Auto-increment (1, 2, 3…)", "Compact, ordered, index-friendly", "One counter per database; collides across shards; guessable"],
+              ["Random UUID (v4)", "Generated anywhere, no coordination", "16 bytes; random inserts scatter across the index"],
+              ["Time-ordered ID (UUIDv7, Snowflake)", "Generated anywhere and roughly sorted", "Relies on reasonably synced clocks"],
+              ["Natural key (email, ISBN)", "Meaningful, no extra column", "Can change or be reused; often personal data"]
+            ]
+          }
+        },
+        {
+          "id": "sharded-order-key",
+          "type": "choice",
+          "context": "Orders are spread across 20 database shards, and each shard inserts new orders on its own.",
+          "prompt": "Which primary key fits best?",
+          "options": [
+            "A plain auto-increment column on each shard",
+            "One global auto-increment counter in a central database",
+            "The customer's email plus the order timestamp",
+            "A UUID or time-ordered ID generated by the app"
+          ],
+          "answer": "A UUID or time-ordered ID generated by the app",
+          "why": "IDs generated anywhere without coordination can't collide across shards and need no central service. A time-ordered variant (UUIDv7, Snowflake) also keeps B-tree inserts roughly sequential.",
+          "misconceptions": {
+            "A plain auto-increment column on each shard": "Each shard counts 1, 2, 3… on its own, so two shards will both issue order 1001 (unless you give each shard its own offset and step).",
+            "One global auto-increment counter in a central database": "Every insert on every shard now waits on one server: a bottleneck and a single point of failure.",
+            "The customer's email plus the order timestamp": "Emails change, two orders can land in the same millisecond, and you'd copy personal data into every table that references an order."
+          }
+        },
+        {
+          "id": "secondary-indexes",
+          "type": "concept",
+          "title": "Secondary indexes",
+          "body": "Without an index, `WHERE email = ?` reads every row: a **full table scan**. A **secondary index** is a separate sorted structure, usually a **B-tree**, mapping a column's values to rows. Each node has hundreds of children, so the tree stays shallow: finding one row among 100M takes about four page reads.",
+          "visual": {
+            "kind": "bars",
+            "unit": "reads",
+            "log": true,
+            "items": [
+              { "label": "Full table scan (rows)", "value": 100000000 },
+              { "label": "B-tree lookup (pages, ≈ 3–4 levels)", "value": 4 }
+            ]
+          }
+        },
+        {
+          "id": "index-tradeoff-fill",
+          "type": "fill",
+          "text": "Most relational indexes are [[B-trees]], so finding one row takes a few page reads instead of a full [[table scan]]. The catch: every [[write|insert]] must also update each index on the table, and every index takes extra [[storage|disk space]]. So index the columns you [[filter and join on]], not every column.",
+          "bank": ["B-trees", "table scan", "write", "storage", "filter and join on", "read", "hash rings", "never query"],
+          "why": "Indexes trade write speed and storage for read speed. Each extra index is one more structure to update on every insert, update, and delete, so add one only for queries that actually run."
+        },
+        {
+          "id": "normalize-or-denormalize",
+          "type": "concept",
+          "title": "Normalize or denormalize?",
+          "body": "**Normalization** stores each fact once and links tables with keys, so an update touches one row. **Denormalization** copies data to where it's read, like the author's name on every post, so reads skip joins. It's a trade: faster reads for heavier writes and copies that can drift out of sync.",
+          "visual": {
+            "kind": "compare",
+            "left": {
+              "title": "Normalized",
+              "points": ["Each fact stored once", "Updates touch one row", "Reads need joins", "Good default for transactional data"]
+            },
+            "right": {
+              "title": "Denormalized",
+              "points": ["Data copied to where it's read", "Reads are one lookup, no joins", "Writes must update every copy", "Good for read-heavy hot paths"]
+            }
+          }
+        },
+        {
+          "id": "feed-author-name",
+          "type": "choice",
+          "context": "A feed shows 50 posts at a time, each with its author's name and avatar. Feeds are read about 1,000 times for every profile change, and the join to `users` is now the slowest part of the page.",
+          "prompt": "What's the most reasonable move?",
+          "options": [
+            "Copy the author's name and avatar onto each post, and update those copies when a profile changes",
+            "Keep joining on every read, because normalized data is always the right call",
+            "Copy the names onto posts, then drop the `users` table",
+            "Copy the names onto posts and never update them"
+          ],
+          "answer": "Copy the author's name and avatar onto each post, and update those copies when a profile changes",
+          "why": "At 1,000 reads per write, paying extra on the rare profile update to skip a join on every feed read is a good trade, as long as the copies are kept in sync (often asynchronously).",
+          "misconceptions": {
+            "Keep joining on every read, because normalized data is always the right call": "Normalization is the right default, not a law. Here the same join runs on a hot path a thousand times for every change it protects against.",
+            "Copy the names onto posts, then drop the `users` table": "The copies are derived data. The `users` table stays the source of truth they're refreshed from.",
+            "Copy the names onto posts and never update them": "Then a renamed user shows their old name on every past post forever. Denormalized copies need an update path, even a slow one."
+          }
+        }
+      ]
+    },
+    {
+      "id": "access-patterns",
+      "title": "Designing for access patterns",
+      "summary": "Model NoSQL tables query-first: partition keys, sort keys, hot spots, and precomputed views.",
+      "minutes": 9,
+      "steps": [
+        {
+          "id": "query-first-pretest",
+          "type": "choice",
+          "prompt": "You're modelling data for Cassandra or DynamoDB, which have no joins. What do you design **first**?",
+          "options": [
+            "The list of queries the app must answer, and how often each runs",
+            "A fully normalized schema, the same as you would for SQL",
+            "Secondary indexes on every column you might filter by",
+            "Whatever layout makes writes simplest"
+          ],
+          "answer": "The list of queries the app must answer, and how often each runs",
+          "why": "Without joins, each query has to be answered from one partition of one table, so the access patterns decide the tables. In SQL you can model entities first because joins answer new questions later.",
+          "misconceptions": {
+            "A fully normalized schema, the same as you would for SQL": "Normalized tables need joins to put back together, and these stores don't join. You'd end up joining in the app with many round trips.",
+            "Secondary indexes on every column you might filter by": "Secondary indexes are limited here: in Cassandra they query every node, and in DynamoDB each one is a separately billed copy of the data. You can't index your way out of a model that ignores the queries.",
+            "Whatever layout makes writes simplest": "Writes are usually cheap in these stores; reads are the hard part. A write-convenient layout often forces scans to answer queries."
+          }
+        },
+        {
+          "id": "entity-vs-query-first",
+          "type": "concept",
+          "title": "Model the queries, not the entities",
+          "body": "Relational modelling starts from **entities** and trusts joins and indexes to answer any query later. Key-value and wide-column stores only do fast lookups by key, so you start from the **access patterns**: list each query, then shape a table so a single-partition read answers it. Duplicating data across tables is normal here.",
+          "visual": {
+            "kind": "compare",
+            "left": {
+              "title": "Relational: entity-first",
+              "points": ["Model entities, then normalize", "Write any query later, with joins", "One copy of each fact"]
+            },
+            "right": {
+              "title": "NoSQL: query-first",
+              "points": ["List the queries first", "One table (or index) per query", "Duplicate data so each read is one lookup"]
+            }
+          }
+        },
+        {
+          "id": "query-first-steps",
+          "type": "order",
+          "prompt": "Put the steps of query-first modelling in order.",
+          "items": [
+            "List the access patterns and how often each runs",
+            "Choose a partition key that groups the rows each query needs",
+            "Choose a sort key that returns rows in the order the query wants",
+            "Add tables or indexes, with duplicated data, for the remaining queries",
+            "Check the finished design's partition sizes and hot keys against expected load"
+          ],
+          "why": "Everything follows from the queries: they decide which rows belong together (partition key) and in what order (sort key). Only then do you cover leftover queries with extra tables and test the design against real traffic."
+        },
+        {
+          "id": "partition-and-sort-keys",
+          "type": "concept",
+          "title": "Partition key + sort key",
+          "body": "The **partition key** decides where a row lives: all rows with the same key are stored together. The **sort key** (a *clustering column* in Cassandra) orders rows inside that partition. Key messages by `conversation_id` + `sent_at`, and \"latest 50 messages in this chat\" becomes one contiguous read from one place.",
+          "visual": {
+            "kind": "table",
+            "columns": ["conversation_id (partition)", "sent_at (sort)", "sender", "text"],
+            "rows": [
+              ["c42", "10:01", "ana", "lunch?"],
+              ["c42", "10:02", "ben", "sure, 12:30"],
+              ["c42", "10:05", "ana", "see you there"],
+              ["c77", "09:14", "kim", "deploy done"]
+            ]
+          }
+        },
+        {
+          "id": "order-history-key",
+          "type": "choice",
+          "context": "A shop's app shows each customer's order history, newest first.",
+          "prompt": "Which key design answers that with a single-partition read?",
+          "options": [
+            "Partition key `customer_id`, sort key `order_date` (descending)",
+            "Partition key `order_id`",
+            "Partition key `order_date`, sort key `customer_id`",
+            "Partition key `customer_id`, no sort key"
+          ],
+          "answer": "Partition key `customer_id`, sort key `order_date` (descending)",
+          "hint": "Which rows does the screen need together, and in what order?",
+          "why": "Partitioning by customer keeps one customer's orders together, and sorting by date puts the newest first. The query reads one partition from the top.",
+          "misconceptions": {
+            "Partition key `order_id`": "Each order lands in its own partition, so one customer's history means scanning the whole table.",
+            "Partition key `order_date`, sort key `customer_id`": "All of today's orders pile into one partition (a hot spot), and each customer's history is scattered across every date.",
+            "Partition key `customer_id`, no sort key": "With no sort key, the partition key alone is the primary key, so each customer can hold only one row. Every new order would overwrite the last."
+          }
+        },
+        {
+          "id": "hot-partitions-time-series",
+          "type": "concept",
+          "title": "Hot partitions and time buckets",
+          "body": "A partition lives on one node (plus its replicas), so one popular key, like a celebrity's account or \"today\", swamps that node while others idle. Prefer keys with many distinct values and even traffic. For **time series**, bucket the key (`sensor_id` + day) so partitions stay bounded instead of growing forever. Unit 7 goes deeper.",
+          "visual": {
+            "kind": "bars",
+            "unit": "req/s",
+            "items": [
+              { "label": "Partition A", "value": 1200 },
+              { "label": "Partition B", "value": 900 },
+              { "label": "Partition C (celebrity)", "value": 40000 },
+              { "label": "Partition D", "value": 1100 }
+            ]
+          }
+        },
+        {
+          "id": "sensor-key",
+          "type": "choice",
+          "context": "An IoT platform stores one reading per minute from each of 1M sensors and keeps years of history. The main query is \"sensor X, last 24 hours\".",
+          "prompt": "Which partition key fits best?",
+          "options": [
+            "`sensor_id` + day, with `timestamp` as the sort key",
+            "`timestamp`",
+            "`sensor_id` alone, with `timestamp` as the sort key",
+            "A random `reading_id`"
+          ],
+          "answer": "`sensor_id` + day, with `timestamp` as the sort key",
+          "why": "Bucketing by sensor and day spreads writes over many partitions, caps each partition at one day (1,440 readings), and answers \"last 24 hours\" with at most two partition reads.",
+          "misconceptions": {
+            "`timestamp`": "Every sensor writes \"now\" at the same moment, so all writes hit the same partition: a textbook hot partition.",
+            "`sensor_id` alone, with `timestamp` as the sort key": "Close, and reads are fast, but each partition grows forever: years of readings for one sensor in one place. A common Cassandra rule of thumb is to keep partitions under roughly 100 MB.",
+            "A random `reading_id`": "Writes spread perfectly, but \"sensor X, last 24 hours\" has no partition to read, so it becomes a scan of the whole table."
+          }
+        },
+        {
+          "id": "message-storage",
+          "type": "estimate",
+          "context": "A chat app stores every message in a wide-column table keyed by `conversation_id` + `sent_at`.",
+          "prompt": "How much disk does one year of messages take, counting replicas?",
+          "given": [
+            ["Messages per day", "100M"],
+            ["Bytes per row (keys, text, overhead)", "200 B"],
+            ["Days per year", "≈ 365"],
+            ["Replication factor", "3 copies"]
+          ],
+          "answer": 22,
+          "unit": "TB",
+          "tolerance": 0.3,
+          "solution": [
+            "100M rows/day × 200 B = 20 GB/day",
+            "20 GB/day × 365 days ≈ 7.3 TB/year",
+            "7.3 TB × 3 replicas ≈ 22 TB"
+          ],
+          "why": "Storage = rows × bytes per row × retention × copies. Forgetting the replication factor is the classic miss: one logical terabyte is three on disk, before indexes or compaction headroom."
+        },
+        {
+          "id": "precomputed-views",
+          "type": "concept",
+          "title": "Precompute the expensive reads",
+          "body": "When a read is hot and costly to assemble, compute the answer **ahead of time**. Write a second copy of the data shaped for that query: a denormalized table, a counter, or a materialized view. Writes do more work, often asynchronously through a queue, so the read becomes one key lookup.",
+          "visual": {
+            "kind": "diagram",
+            "nodes": [
+              { "id": "app", "type": "app", "x": 12, "y": 50, "label": "Chat service" },
+              { "id": "msgs", "type": "db_nosql", "x": 50, "y": 18, "label": "messages" },
+              { "id": "q", "type": "queue", "x": 40, "y": 78, "label": "New-message events" },
+              { "id": "w", "type": "worker", "x": 65, "y": 78, "label": "Inbox updater" },
+              { "id": "inbox", "type": "db_nosql", "x": 88, "y": 50, "label": "inbox_by_user" }
+            ],
+            "edges": [
+              ["app", "msgs", "write"],
+              ["app", "q", "publish"],
+              ["q", "w"],
+              ["w", "inbox", "upsert"]
+            ]
+          }
+        },
+        {
+          "id": "inbox-view",
+          "type": "choice",
+          "context": "Your `messages` table is keyed by `conversation_id` + `sent_at`. Now the app also needs each user's list of conversations, most recently active first.",
+          "prompt": "What's the query-first move?",
+          "options": [
+            "Add a table keyed by `user_id`, sorted by last activity, and update it on every new message",
+            "Scan `messages` and keep the conversations this user is in",
+            "Join `messages` with a `participants` table at read time",
+            "Re-key `messages` by `user_id` instead"
+          ],
+          "answer": "Add a table keyed by `user_id`, sorted by last activity, and update it on every new message",
+          "why": "Each new access pattern gets a table shaped for it. Updating a small per-user inbox row on each message (often asynchronously) turns the inbox screen into a single-partition read.",
+          "misconceptions": {
+            "Scan `messages` and keep the conversations this user is in": "That touches every partition in the cluster each time someone opens the app, and it gets slower as you grow.",
+            "Join `messages` with a `participants` table at read time": "Cassandra and DynamoDB don't join. Doing it in the app means one query per conversation: the N+1 problem.",
+            "Re-key `messages` by `user_id` instead": "Then \"latest 50 messages in this chat\" breaks, because a conversation's messages scatter across its participants' partitions. One table can't serve both queries."
+          }
+        }
+      ]
+    },
+    {
+      "id": "blobs-search-right-tool",
+      "title": "Blobs, search, and the right tool",
+      "summary": "Files go to object storage, keyword search goes to an inverted index, and caches stay caches.",
+      "minutes": 9,
+      "steps": [
+        {
+          "id": "photo-bytes-pretest",
+          "type": "choice",
+          "prompt": "Users upload 5 MB profile photos. Where should the image bytes live?",
+          "options": [
+            "In object storage (e.g. S3), with the object key stored in the database",
+            "In a BLOB column of the main SQL database",
+            "On the app server's local disk",
+            "In Redis, so they load fast"
+          ],
+          "answer": "In object storage (e.g. S3), with the object key stored in the database",
+          "why": "Object storage is built for large, immutable files: cheap per GB, practically unlimited, and highly durable. The database keeps the small, queryable metadata plus a pointer (the object key) to the bytes.",
+          "misconceptions": {
+            "In a BLOB column of the main SQL database": "It works for a few files, but it bloats the database: backups, replication, and the buffer cache all haul megabytes of image data that SQL never queries.",
+            "On the app server's local disk": "App servers are stateless and replaceable. A file on one server's disk is invisible to the others and lost when that server is replaced.",
+            "In Redis, so they load fast": "Memory costs far more per GB than object storage, and a cache may evict data. A CDN is what makes photos load fast."
+          }
+        },
+        {
+          "id": "object-storage",
+          "type": "concept",
+          "title": "Object storage + metadata",
+          "body": "**Object storage** (Amazon S3, Google Cloud Storage) keeps files as objects under a key, served over HTTP. It's cheap, scales past anything you'll need, and is built for very high durability. Store the bytes there, and store the **metadata** (owner, size, content type, object key) in your database, where you can query it.",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "11 nines", "label": "S3's designed durability (99.999999999%)" },
+              { "value": "≈ $0.02", "label": "per GB-month, S3 Standard (approx.)" },
+              { "value": "≈ $0.12", "label": "per GB-month, managed SQL disk like RDS gp3 (approx., per copy)" }
+            ]
+          }
+        },
+        {
+          "id": "upload-bottleneck",
+          "type": "choice",
+          "context": "Mobile users upload photos over slow connections. Each upload holds an app-server connection open for up to a minute while the app streams the bytes on to S3.",
+          "prompt": "What's the standard fix?",
+          "options": [
+            "Return a short-lived pre-signed URL so the client uploads straight to object storage",
+            "Add more app servers to absorb the uploads",
+            "Ship storage credentials in the app so clients write to the bucket directly",
+            "Save uploads in the database first, then copy them to S3 overnight"
+          ],
+          "answer": "Return a short-lived pre-signed URL so the client uploads straight to object storage",
+          "why": "A pre-signed URL is a link signed by your backend that allows one specific action (PUT this key) until it expires. The bytes skip your servers entirely, and you still control who uploads what.",
+          "misconceptions": {
+            "Add more app servers to absorb the uploads": "It works, but you pay for servers to shuffle bytes they never need to touch. Taking the app out of the data path fixes the cause.",
+            "Ship storage credentials in the app so clients write to the bucket directly": "Anyone can extract keys from an app binary and then read, overwrite, or delete your whole bucket. A pre-signed URL gives the same direct path with scoped, expiring permission.",
+            "Save uploads in the database first, then copy them to S3 overnight": "That pushes even more bytes through the app and into the database: the opposite of what you want."
+          }
+        },
+        {
+          "id": "presigned-uploads",
+          "type": "concept",
+          "title": "Pre-signed uploads",
+          "body": "The app checks that the user may upload, picks an object key, and returns a **pre-signed URL**: signed with the app's credentials, scoped to one key, and expiring in minutes. The client PUTs the file straight to object storage. App servers only handle small JSON requests, and viewers later fetch the photo through a **CDN**.",
+          "visual": {
+            "kind": "compare",
+            "left": {
+              "title": "Upload through the app",
+              "points": ["Every byte crosses the LB and app servers", "Slow uploads tie up server connections", "App fleet scales with bandwidth, not requests"]
+            },
+            "right": {
+              "title": "Pre-signed, direct",
+              "points": ["Bytes go client → object storage", "App handles small JSON calls only", "URL is scoped to one key and expires"]
+            }
+          }
+        },
+        {
+          "id": "upload-flow",
+          "type": "order",
+          "prompt": "Order the steps of a direct photo upload.",
+          "items": [
+            "Client asks the app for permission to upload",
+            "App checks auth, picks an object key, and returns a pre-signed URL",
+            "Client PUTs the photo bytes straight to object storage",
+            "Client (or a storage event) tells the app the upload finished",
+            "App saves the photo's metadata and object key in the database"
+          ],
+          "why": "Permission comes before bytes, and the database records the photo only once the object really exists, so it never points at a missing file."
+        },
+        {
+          "id": "photo-upload-build",
+          "type": "build",
+          "context": "Users upload photos from their phones, and millions of people view them.",
+          "prompt": "Wire up photo upload and viewing. Upload bytes must bypass the app servers, the app stores each photo's metadata, and viewers load photos from the edge.",
+          "palette": ["client", "lb", "app", "db_sql", "object_store", "cdn", "queue", "worker", "search"],
+          "start": {
+            "nodes": [{ "id": "c", "type": "client", "x": 5, "y": 50 }],
+            "edges": []
+          },
+          "rules": {
+            "nodes": [
+              { "type": "object_store", "why": "Photo bytes belong in object storage, not in the database or on app servers." }
+            ],
+            "edges": [
+              { "from": "app", "to": "db", "why": "The app records each photo's metadata and object key in the database." },
+              { "from": "client", "to": "object_store", "why": "With a pre-signed URL the client uploads straight to object storage, so the bytes never touch the app servers." }
+            ],
+            "paths": [
+              { "through": ["client", "lb", "app", "db"], "why": "Upload requests and photo metadata go through the load balancer and app to the database." },
+              { "through": ["client", "cdn", "object_store"], "why": "Viewers fetch photos from a CDN that pulls from object storage (its origin) and caches copies near users." }
+            ],
+            "forbidden": [
+              { "from": "client", "to": "db", "why": "Clients never talk to the database directly; the app enforces auth and validation." }
+            ],
+            "connected": true,
+            "pass": 0.75
+          },
+          "solution": {
+            "nodes": [
+              { "id": "c", "type": "client", "x": 5, "y": 50 },
+              { "id": "cdn", "type": "cdn", "x": 28, "y": 15 },
+              { "id": "lb", "type": "lb", "x": 28, "y": 68 },
+              { "id": "app", "type": "app", "x": 48, "y": 68 },
+              { "id": "s3", "type": "object_store", "x": 72, "y": 15, "label": "Photo bucket" },
+              { "id": "q", "type": "queue", "x": 68, "y": 50, "label": "Resize jobs" },
+              { "id": "w", "type": "worker", "x": 92, "y": 35, "label": "Thumbnailer" },
+              { "id": "db", "type": "db_sql", "x": 72, "y": 88, "label": "Photo metadata" }
+            ],
+            "edges": [
+              { "from": "c", "to": "lb" },
+              { "from": "lb", "to": "app" },
+              { "from": "app", "to": "db" },
+              { "from": "c", "to": "s3", "label": "pre-signed PUT" },
+              { "from": "c", "to": "cdn", "label": "view" },
+              { "from": "cdn", "to": "s3", "label": "origin fetch" },
+              { "from": "app", "to": "q" },
+              { "from": "q", "to": "w" },
+              { "from": "w", "to": "s3", "label": "thumbnails" }
+            ]
+          },
+          "why": "The design splits two paths: small metadata requests go client → LB → app → DB, while large bytes go client → object storage directly and come back out through the CDN. A queue and workers can make thumbnails in the background; search isn't needed for this flow."
+        },
+        {
+          "id": "inverted-index",
+          "type": "concept",
+          "title": "Full-text search",
+          "body": "`LIKE '%red shoes%'` can't use a B-tree index, so it scans every row, and it can't rank results or forgive typos. A **search engine** (Elasticsearch, OpenSearch) builds an **inverted index** that maps each term to the documents containing it. The index is a **copy** fed from the primary database, never the source of truth.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Term", "Product IDs"],
+            "rows": [
+              ["red", "12, 40, 97"],
+              ["shoe", "12, 55, 97"],
+              ["running", "40, 97"],
+              ["Query \"red shoes\"", "12, 97 (in both lists)"]
+            ]
+          }
+        },
+        {
+          "id": "feed-search-index",
+          "type": "choice",
+          "context": "Product edits are saved in Postgres and must show up in search within seconds.",
+          "prompt": "How should the search index be kept up to date?",
+          "options": [
+            "Capture database changes (CDC) into a queue, and have workers update the index",
+            "After each database write, the app also writes to Elasticsearch in the same request",
+            "Make Elasticsearch the primary database for products",
+            "Rebuild the whole index with a nightly batch job"
+          ],
+          "answer": "Capture database changes (CDC) into a queue, and have workers update the index",
+          "why": "Change data capture reads the database's own change log, so every committed write reaches the index in order, even if a worker crashes and retries. The index lags by seconds, which search can tolerate.",
+          "misconceptions": {
+            "After each database write, the app also writes to Elasticsearch in the same request": "These are *dual writes*: if the second write fails, or two updates race, the index silently diverges from the database. CDC derives the index from one ordered log instead.",
+            "Make Elasticsearch the primary database for products": "Search engines are built for querying, not as a transactional source of truth: there are no multi-document transactions, and writes become searchable only after a refresh (about 1 s by default).",
+            "Rebuild the whole index with a nightly batch job": "It works, but search can be up to a day stale, and rebuilding everything gets slower as the catalog grows."
+          }
+        },
+        {
+          "id": "source-of-truth",
+          "type": "concept",
+          "title": "Source of truth vs copies",
+          "body": "Every piece of data needs one durable **source of truth**. Search indexes, caches, and warehouses are **derived copies** you can rebuild from it. A cache (Redis, Memcached) may evict keys under memory pressure or lose them on restart, so the app must still work, just slower, on a miss. **A cache is not a database.**",
+          "visual": {
+            "kind": "table",
+            "columns": ["Store", "Source of truth?", "Best at"],
+            "rows": [
+              ["Relational or NoSQL database", "Yes", "Records and their relationships"],
+              ["Object storage", "Yes, for file bytes", "Large files: photos, video, backups"],
+              ["Search index", "No, derived", "Keyword search and ranking"],
+              ["Cache", "No, derived", "Fast repeated reads of hot data"],
+              ["Data warehouse", "No, derived", "Analytics over years of history"]
+            ]
+          }
+        },
+        {
+          "id": "data-to-home",
+          "type": "match",
+          "prompt": "Match each piece of data to its best home.",
+          "pairs": [
+            ["Raw 4K videos that users upload", "Object storage"],
+            ["Customer accounts, orders, and payments", "Relational database"],
+            ["\"wireles headphones\" (typo and all) → ranked products", "Search index"],
+            ["A product page viewed 1M times a minute, fine if 30 s stale", "Cache"],
+            ["Five years of click events for quarterly trend reports", "Data warehouse"]
+          ],
+          "why": "Put each kind of data where its dominant access pattern is cheap: bytes in object storage, transactional records in a relational database, keyword queries in an inverted index, repeated reads in a cache, and big analytical scans in a columnar warehouse."
+        }
+      ]
+    }
+  ]
+}

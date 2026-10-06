@@ -16,7 +16,7 @@ export function registerViews(map, { onRender } = {}) {
 
 export function route() {
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(decodeURIComponent);
-  return { name: parts[0] || "today", params: parts.slice(1) };
+  return { name: parts[0] || "home", params: parts.slice(1) };
 }
 
 export function href(name, ...params) {
@@ -51,8 +51,8 @@ function render(keepScroll) {
   }
   main.replaceChildren();
   const { name, params } = route();
-  const view = views.get(name) || views.get("today");
-  document.body.dataset.route = views.has(name) ? name : "today";
+  const view = views.get(name) || views.get("home");
+  document.body.dataset.route = views.has(name) ? name : "home";
   const result = view(main, params);
   cleanup = typeof result === "function" ? result : null;
   main.scrollTop = keepScroll ? scroll : 0;

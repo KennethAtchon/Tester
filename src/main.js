@@ -1,12 +1,11 @@
-const { app, BrowserWindow, dialog, ipcMain } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const { runCode } = require("./runner/runCode");
 const { runExec } = require("./runner/runExec");
 
 const appRoot = path.dirname(__dirname);
-const examplesPath = path.join(appRoot, "examples");
-const samplePath = path.join(appRoot, "sample-tests.json");
+const coursesPath = path.join(appRoot, "courses");
 const resultsPath = path.join(appRoot, "results");
 
 // Learner progress (memory model, review log, settings) lives in the user-data
@@ -22,7 +21,7 @@ function createWindow() {
     minWidth: 900,
     minHeight: 640,
     title: "Recall",
-    backgroundColor: "#f7f7f5",
+    backgroundColor: "#f6f5f1",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -49,12 +48,65 @@ app.on("window-all-closed", () => {
   }
 });
 
-ipcMain.handle("tests:open", async () => {
+// Built-in courses: every *.json file in courses/, and every folder with a
+// course.json whose "units"/"projects" list file names to inline.
+ipcMain.handle("courses:builtin", async () => {
+  let entries = [];
+  try {
+    entries = await fs.readdir(coursesPath, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+
+  const courses = [];
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    const entryPath = path.join(coursesPath, entry.name);
+    try {
+      if (entry.isDirectory()) {
+        const manifestPath = path.join(entryPath, "course.json");
+        const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+        manifest.units = await inlineParts(entryPath, manifest.units);
+        manifest.projects = await inlineParts(entryPath, manifest.projects);
+        courses.push({ path: manifestPath, course: manifest });
+      } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".json")) {
+        courses.push({ path: entryPath, course: JSON.parse(await fs.readFile(entryPath, "utf8")) });
+      }
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        courses.push({ path: entryPath, error: error.message });
+      }
+    }
+  }
+  return courses;
+});
+
+async function inlineParts(folder, parts) {
+  if (!Array.isArray(parts)) {
+    return [];
+  }
+  const inlined = [];
+  for (const part of parts) {
+    if (typeof part !== "string") {
+      inlined.push(part);
+      continue;
+    }
+    const partPath = path.resolve(folder, part);
+    if (path.relative(folder, partPath).startsWith("..")) {
+      throw new Error(`Course part must live inside the course folder: ${part}`);
+    }
+    inlined.push(JSON.parse(await fs.readFile(partPath, "utf8")));
+  }
+  return inlined;
+}
+
+ipcMain.handle("courses:open", async () => {
   const result = await dialog.showOpenDialog({
-    title: "Load Test JSON",
-    defaultPath: examplesPath,
+    title: "Add a course",
     filters: [
-      { name: "JSON Files", extensions: ["json"] },
+      { name: "Courses", extensions: ["json", "txt", "md"] },
       { name: "All Files", extensions: ["*"] }
     ],
     properties: ["openFile"]
@@ -65,74 +117,12 @@ ipcMain.handle("tests:open", async () => {
   }
 
   const filePath = result.filePaths[0];
-  const content = await fs.readFile(filePath, "utf8");
-
-  return {
-    canceled: false,
-    filePath,
-    content
-  };
+  return { canceled: false, filePath, content: await fs.readFile(filePath, "utf8") };
 });
 
-ipcMain.handle("tests:sample", async () => {
-  const candidatePaths = [
-    samplePath,
-    path.join(app.getAppPath(), "sample-tests.json"),
-    path.join(process.cwd(), "sample-tests.json")
-  ];
-
-  let filePath = "";
-  let content = "";
-
-  for (const candidatePath of candidatePaths) {
-    try {
-      content = await fs.readFile(candidatePath, "utf8");
-      filePath = candidatePath;
-      break;
-    } catch (error) {
-      if (error.code !== "ENOENT") {
-        throw error;
-      }
-    }
-  }
-
-  if (!content) {
-    throw new Error("Could not find sample-tests.json next to the app.");
-  }
-
-  return {
-    filePath,
-    content
-  };
-});
-
-ipcMain.handle("tests:listExamples", async () => {
-  const entries = await fs.readdir(examplesPath, { withFileTypes: true });
-
-  return entries
-    .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".json"))
-    .map((entry) => entry.name)
-    .sort((first, second) => first.localeCompare(second));
-});
-
-ipcMain.handle("tests:example", async (_event, fileName) => {
-  if (typeof fileName !== "string" || !fileName.toLowerCase().endsWith(".json")) {
-    throw new Error("Example file must be a JSON file.");
-  }
-
-  const filePath = path.join(examplesPath, path.basename(fileName));
-  const relativePath = path.relative(examplesPath, filePath);
-
-  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
-    throw new Error("Example file must live inside the examples folder.");
-  }
-
-  const content = await fs.readFile(filePath, "utf8");
-
-  return {
-    filePath,
-    content
-  };
+ipcMain.handle("courses:folder", async () => {
+  await fs.mkdir(coursesPath, { recursive: true });
+  return shell.openPath(coursesPath);
 });
 
 ipcMain.handle("code:run", async (_event, payload) => runCode(payload));

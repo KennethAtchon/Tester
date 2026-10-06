@@ -1,303 +1,252 @@
-// Builds practice sessions from the learner model.
-//
-// A daily session takes due reviews (most-forgotten first, capped so a learner
-// back from a break isn't buried), tops up with new items, and sizes the new
-// share from recent accuracy so practice stays in the ~70–85% band. Items are
-// interleaved across skills, and the session opens with its easiest review as
-// a quick win. Misses are re-queued a few cards later by the session view.
+// Builds "plays" — the ordered steps plus rules for each way of learning:
+// lessons, Design Lab projects, spaced review, and the games. The player
+// runs any of them; only the options differ (timer, lives, combo, feedback).
 
+import { catalog, getLesson, getItem, getUnit, getCourse } from "./catalog.js";
 import { progress, settings } from "./progress.js";
-import { catalog, getItem, getSkill } from "./catalog.js";
-import {
-  dueItemKeys,
-  newItemKeys,
-  todayCounts,
-  itemKnowledge,
-  isEligible,
-  isSkillUnlocked,
-  keyFor,
-  masteryOf
-} from "./learner.js";
+import { dueItemKeys, seenItemKeys, todayCounts, itemKnowledge, isReviewable, isLessonComplete, isLessonUnlocked } from "./learner.js";
 import { retrievability } from "../domain/fsrs.js";
-import { recentAccuracy } from "../domain/insights.js";
+import { choiceAnswers } from "../domain/grading.js";
 
-export const SESSION_KINDS = {
-  daily: "Today's session",
-  one: "Just one card",
-  catchup: "Catch-up",
-  skill: "Skill practice",
-  library: "Mixed practice",
-  mistakes: "Mistake drill",
-  weak: "Weak-spot drill",
-  extra: "Practice ahead",
-  placement: "Placement check",
-  capstone: "Capstone"
-};
+function newId() {
+  return `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+}
 
-export function buildSession(kind, { skillKey = null, libKey = null, size = null } = {}) {
-  const now = Date.now();
-  const target = size ?? settings().sessionSize;
-  const filter = skillKey
-    ? (item) => item.skillKey === skillKey
-    : libKey
-      ? (item) => item.libKey === libKey
-      : null;
+function fromItem(itemKey, mode, extra = {}) {
+  const item = getItem(itemKey);
+  return { step: item.step, itemKey, lessonKey: item.lessonKey, mode, requeues: 0, ...extra };
+}
 
-  let entries = [];
-  let allowHints = true;
-  let timerMs = null;
-  let subtitle = "";
-
-  switch (kind) {
-    case "one": {
-      const daily = composeDaily(now, 3, null);
-      entries = daily.slice(0, 1);
-      subtitle = "One card. Stop after it, or keep going — your call.";
-      break;
-    }
-    case "catchup": {
-      entries = composeDaily(now, 5, null);
-      subtitle = "A three-minute catch-up. The rest will spread over the next few days.";
-      break;
-    }
-    case "skill":
-    case "library": {
-      entries = composeDaily(now, target, filter, { focused: true });
-      if (entries.length === 0) {
-        entries = weakest(now, target, filter);
-      }
-      subtitle = kind === "skill" ? getSkill(skillKey)?.title || "" : "Interleaved across every skill in this library.";
-      break;
-    }
-    case "mistakes": {
-      entries = openMistakes(filter).slice(0, Math.max(target, 15)).map((itemKey) => entry(itemKey, "drill"));
-      subtitle = "Deliberate practice on your own errors.";
-      break;
-    }
-    case "weak": {
-      entries = weakest(now, target, filter);
-      subtitle = "Your lowest-strength items, drilled in isolation.";
-      break;
-    }
-    case "extra": {
-      entries = weakest(now, target, filter, { excludeDue: true });
-      subtitle = "Nothing is due. These are your weakest items, reviewed early.";
-      break;
-    }
-    case "placement": {
-      entries = placementItems(libKey);
-      allowHints = false;
-      subtitle = "A short check so you can skip what you already know.";
-      break;
-    }
-    case "capstone": {
-      entries = capstoneItems(libKey, 10);
-      allowHints = false;
-      timerMs = entries.length * 75 * 1000;
-      subtitle = "Mixed, timed, no hints. Tests whether skills transfer.";
-      break;
-    }
-    default: {
-      entries = composeDaily(now, target, null);
-      subtitle = "";
-    }
-  }
-
+export function lessonPlay(lessonKey) {
+  const lesson = getLesson(lessonKey);
+  const course = getCourse(lesson.courseId);
+  const unit = getUnit(lesson.unitKey);
   return {
-    id: `s${now.toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-    kind,
-    title: SESSION_KINDS[kind] || SESSION_KINDS.daily,
-    subtitle,
-    libKey,
-    skillKey,
-    allowHints,
-    timerMs,
-    startedAt: now,
-    queue: entries,
-    // Mastery at start for every skill the session touches (for the summary).
-    masteryStart: Object.fromEntries(
-      [...new Set(entries.map((item) => getItem(item.itemKey)?.skillKey).filter(Boolean))].map((key) => [key, masteryOf(key, now)])
-    )
+    id: newId(),
+    kind: "lesson",
+    key: lessonKey,
+    title: lesson.title,
+    subtitle: unit?.title ?? course.title,
+    color: course.color,
+    steps: lesson.steps.map((step) => ({
+      step,
+      itemKey: lesson.items.includes(`${lessonKey}::${step.id}`) ? `${lessonKey}::${step.id}` : null,
+      lessonKey,
+      mode: "lesson",
+      requeues: 0
+    })),
+    options: { requeue: true, hints: true, confidence: settings().confidenceInLessons, selfExplain: settings().selfExplain }
   };
 }
 
-function entry(itemKey, mode) {
-  return { itemKey, mode, requeues: 0 };
+export function projectPlay(projectKey, { interview = false } = {}) {
+  const project = getLesson(projectKey);
+  const course = getCourse(project.courseId);
+  return {
+    id: newId(),
+    kind: "project",
+    key: projectKey,
+    title: project.title,
+    subtitle: interview ? "Interview mode · feedback at the end" : `Design Lab · ${project.difficulty}`,
+    color: course.color,
+    brief: project.brief,
+    stages: project.stages,
+    steps: project.steps.map((step) => ({
+      step,
+      itemKey: project.items.includes(`${projectKey}::${step.id}`) ? `${projectKey}::${step.id}` : null,
+      lessonKey: projectKey,
+      mode: "project",
+      stageId: step.stageId,
+      stageTitle: step.stageTitle,
+      requeues: 0
+    })),
+    options: { interview, deferFeedback: interview, hints: !interview, timerMs: interview ? 45 * 60 * 1000 : null }
+  };
 }
 
-function composeDaily(now, size, filter, { focused = false } = {}) {
-  const counts = todayCounts(now);
-  const reviewCap = Math.max(0, settings().maxReviewsPerDay - counts.reviewsToday);
-  const due = dueItemKeys(now, filter).slice(0, reviewCap);
-  let newAllowance = Math.max(0, settings().newPerDay - counts.newToday);
-  if (focused) {
-    // Choosing to study one skill is an explicit ask for new material there.
-    newAllowance = Math.max(newAllowance, Math.ceil(size / 2));
+// Spaced review. kind: due | ahead | mistakes
+export function reviewPlay({ kind = "due", size = null } = {}) {
+  const target = size ?? settings().sessionSize;
+  const now = Date.now();
+  let keys = [];
+  let title = "Daily review";
+  let subtitle = "Spaced recall, most-forgotten first.";
+
+  if (kind === "due") {
+    const cap = Math.max(0, settings().maxReviewsPerDay - todayCounts(now).reviewsToday);
+    keys = dueItemKeys(now).slice(0, Math.min(cap, target));
+    keys = withQuickWin(keys, now);
+  } else if (kind === "mistakes") {
+    title = "Mistake drill";
+    subtitle = "Your own errors, re-asked. Fix them on a later day to clear them.";
+    keys = Object.values(progress().mistakes)
+      .filter((mistake) => !mistake.resolvedAt && getItem(mistake.item) && getItem(mistake.item).kind === "lesson")
+      .sort((a, b) => Number(b.hyper) - Number(a.hyper) || b.lastTs - a.lastTs)
+      .map((mistake) => mistake.item)
+      .slice(0, Math.max(target, 15));
+  } else {
+    title = "Practice ahead";
+    subtitle = "Nothing is due. These are your weakest cards.";
+    const due = new Set(dueItemKeys(now));
+    keys = seenItemKeys((item) => isReviewable(item) && !due.has(item.key))
+      .map((key) => ({ key, knowledge: itemKnowledge(key, now) }))
+      .sort((a, b) => a.knowledge - b.knowledge)
+      .slice(0, target)
+      .map((entry) => entry.key);
   }
 
-  // Difficulty targeting: too easy → more new material; too hard → consolidate.
-  const accuracy = recentAccuracy(progress().log, 25);
-  const share = accuracy == null ? 0.4 : accuracy > 0.85 ? 0.5 : accuracy >= 0.7 ? 0.3 : 0.1;
-
-  let newCount = Math.min(newAllowance, Math.round(size * share));
-  let reviewCount = Math.min(due.length, size - newCount);
-  // Fill leftover room with whichever pool still has items.
-  newCount = Math.min(newAllowance, size - reviewCount);
-  reviewCount = Math.min(due.length, size - newCount);
-
-  const reviews = due.slice(0, reviewCount).map((itemKey) => entry(itemKey, "review"));
-  const fresh = pickNew(now, newCount, filter).map((itemKey) => entry(itemKey, "new"));
-
-  return withQuickWin(interleave([...reviews, ...fresh]), now);
+  return {
+    id: newId(),
+    kind: "review",
+    title,
+    subtitle,
+    steps: interleave(keys).map((key) => fromItem(key, "review")),
+    options: { requeue: true, hints: true, confidence: true, recallFirst: settings().recallFirst, selfExplain: settings().selfExplain }
+  };
 }
 
-// New items: continue skills already in progress first, open at most one
-// untouched skill per session, and round-robin between skills.
-function pickNew(now, count, filter) {
-  if (count <= 0) {
-    return [];
-  }
-  const pool = newItemKeys(now, filter);
-  const bySkill = new Map();
-  for (const itemKey of pool) {
-    const skillKey = getItem(itemKey).skillKey;
-    if (!bySkill.has(skillKey)) {
-      bySkill.set(skillKey, []);
-    }
-    bySkill.get(skillKey).push(itemKey);
-  }
+// 60 seconds of quick single-answer questions you've already seen.
+export function lightningPlay() {
+  const known = seenItemKeys((item) => item.kind === "lesson" && quickChoice(item.step));
+  const sorted = known
+    .map((key) => ({ key, sort: (progress().items[key]?.lastCorrect ? 0 : 1) + Math.random() }))
+    .sort((a, b) => a.sort - b.sort)
+    .map((entry) => entry.key);
+  return {
+    id: newId(),
+    kind: "lightning",
+    title: "Lightning round",
+    subtitle: "60 seconds. Every right answer builds your combo.",
+    steps: sorted.slice(0, 60).map((key) => fromItem(key, "lightning")),
+    options: { timerMs: 60 * 1000, instant: true, combo: true, game: true, hints: false, minSteps: 5 }
+  };
+}
 
-  const started = [];
-  const untouched = [];
-  for (const [skillKey, items] of bySkill) {
-    const skill = getSkill(skillKey);
-    const anySeen = skill.items.some((itemKey) => progress().items[itemKey]?.state && progress().items[itemKey].state !== "new");
-    (anySeen ? started : untouched).push(items);
-  }
+function quickChoice(step) {
+  const answers = choiceAnswers(step);
+  return step.type === "choice" && answers && answers.length === 1 && step.options.length <= 5 && String(step.prompt).length < 220;
+}
 
-  const lanes = [...started];
-  if (untouched.length > 0) {
-    lanes.push(untouched[0]);
-  }
-  if (lanes.length === 1 && untouched.length > 1) {
-    lanes.push(untouched[1]);
-  }
+// Drag-and-drop puzzles from lessons you've reached.
+export function arcadePlay() {
+  const types = new Set(["sort", "match", "order"]);
+  const pool = [...catalog().items.values()].filter((item) => item.kind === "lesson" && types.has(item.step.type) && (progress().items[item.key] || isLessonUnlocked(item.lessonKey)));
+  const picked = shuffle(pool).slice(0, 6).map((item) => item.key);
+  return {
+    id: newId(),
+    kind: "arcade",
+    title: "Sort & Match",
+    subtitle: "Puzzles from across the course, mixed up.",
+    steps: interleave(picked).map((key) => fromItem(key, "arcade")),
+    options: { combo: true, game: true, minSteps: 1 }
+  };
+}
 
+// Five estimation problems, least recently practiced first.
+export function estimationPlay() {
+  const pool = [...catalog().items.values()].filter((item) => item.step.type === "estimate");
+  const ranked = pool
+    .map((item) => ({ key: item.key, last: progress().items[item.key]?.lastReview ?? 0, sort: Math.random() }))
+    .sort((a, b) => a.last - b.last || a.sort - b.sort)
+    .slice(0, 5)
+    .map((entry) => entry.key);
+  return {
+    id: newId(),
+    kind: "estimation",
+    title: "Estimation dojo",
+    subtitle: "Scored by how close you get. Within 30% is a hit.",
+    steps: ranked.map((key) => fromItem(key, "estimation")),
+    options: { game: true, hints: false, minSteps: 1 }
+  };
+}
+
+export function bossPlay(unitKey) {
+  const unit = getUnit(unitKey);
+  const course = getCourse(unit.courseId);
+  const pool = unit.lessons.flatMap((lessonKey) => getLesson(lessonKey).items).filter((key) => isReviewable(getItem(key)) && getItem(key).step.type !== "text");
+  const picked = interleave(shuffle(pool).slice(0, 10));
+  return {
+    id: newId(),
+    kind: "boss",
+    key: unitKey,
+    title: `Boss: ${unit.title}`,
+    subtitle: "Ten mixed questions. Three lives. No hints.",
+    color: course.color,
+    steps: picked.map((key) => fromItem(key, "boss")),
+    options: { hearts: 3, game: true, hints: false, minSteps: 1 }
+  };
+}
+
+export function bossAvailable(unitKey) {
+  const unit = getUnit(unitKey);
+  return unit.lessons.length > 0 && unit.lessons.every(isLessonComplete);
+}
+
+// A few questions from the early units so experienced learners can skip ahead.
+export function placementPlay(courseId) {
+  const course = getCourse(courseId);
   const picked = [];
-  while (picked.length < count && lanes.some((lane) => lane.length > 0)) {
-    for (const lane of lanes) {
-      if (lane.length > 0 && picked.length < count) {
-        picked.push(lane.shift());
-      }
-    }
+  for (const unitKey of course.unitKeys.slice(0, 5)) {
+    const unit = getUnit(unitKey);
+    const items = unit.lessons.flatMap((lessonKey) => getLesson(lessonKey).items).map(getItem).filter((item) => item.step.type === "choice" && choiceAnswers(item.step));
+    picked.push(...shuffle(items).slice(0, 2).map((item) => ({ ...fromItem(item.key, "placement"), unitKey })));
   }
-  return picked;
+  return {
+    id: newId(),
+    kind: "placement",
+    key: courseId,
+    title: "Placement check",
+    subtitle: "Two questions per unit. Get both right to skip it.",
+    color: course.color,
+    steps: picked,
+    options: { hints: false, game: true, minSteps: 1 }
+  };
 }
 
-// Greedy interleave: avoid two items from the same skill back to back.
-export function interleave(entries) {
-  const remaining = [...entries];
+// Avoid two items from the same lesson back to back.
+export function interleave(keys) {
+  const remaining = [...keys];
   const result = [];
-  let lastSkill = null;
+  let last = null;
   while (remaining.length > 0) {
-    let index = remaining.findIndex((candidate) => getItem(candidate.itemKey)?.skillKey !== lastSkill);
+    let index = remaining.findIndex((key) => getItem(key)?.lessonKey !== last);
     if (index < 0) {
       index = 0;
     }
     const [next] = remaining.splice(index, 1);
     result.push(next);
-    lastSkill = getItem(next.itemKey)?.skillKey ?? null;
+    last = getItem(next)?.lessonKey ?? null;
   }
   return result;
 }
 
-// Start with the review the learner is most likely to get right.
-function withQuickWin(entries, now) {
-  let bestIndex = -1;
+function withQuickWin(keys, now) {
+  let best = -1;
   let bestRecall = -1;
-  entries.forEach((candidate, index) => {
-    if (candidate.mode !== "review") {
-      return;
-    }
-    const memory = progress().items[candidate.itemKey];
+  keys.forEach((key, index) => {
+    const memory = progress().items[key];
     const recall = memory?.lastCorrect ? retrievability(memory, now) : 0;
     if (recall > bestRecall) {
       bestRecall = recall;
-      bestIndex = index;
+      best = index;
     }
   });
-  if (bestIndex > 0) {
-    const [quickWin] = entries.splice(bestIndex, 1);
-    entries.unshift(quickWin);
+  if (best > 0) {
+    const [first] = keys.splice(best, 1);
+    keys.unshift(first);
   }
-  return entries;
+  return keys;
 }
 
-function weakest(now, size, filter, { excludeDue = false } = {}) {
-  const dueSet = excludeDue ? new Set(dueItemKeys(now, filter)) : new Set();
-  const seen = [];
-  for (const item of catalog().items.values()) {
-    if ((filter && !filter(item)) || !isEligible(item) || dueSet.has(item.key)) {
-      continue;
-    }
-    const memory = progress().items[item.key];
-    if (memory && memory.state !== "new") {
-      seen.push({ key: item.key, knowledge: itemKnowledge(item.key, now) });
-    }
-  }
-  seen.sort((a, b) => a.knowledge - b.knowledge);
-  return interleave(seen.slice(0, size).map((candidate) => entry(candidate.key, "drill")));
-}
-
-export function openMistakes(filter = null) {
-  return Object.values(progress().mistakes)
-    .filter((mistake) => !mistake.resolvedAt)
-    .filter((mistake) => {
-      const item = getItem(mistake.item);
-      return item && (!filter || filter(item));
-    })
-    .sort((a, b) => Number(b.hyper) - Number(a.hyper) || b.lastTs - a.lastTs)
-    .map((mistake) => mistake.item);
-}
-
-// One or two representative items per skill; auto-gradable first so the
-// check is quick and objective.
-function placementItems(libKey) {
-  const library = catalog().libraries.find((entryLib) => entryLib.key === libKey);
-  if (!library) {
-    return [];
-  }
-  const perSkill = library.skills.length <= 4 ? 2 : 1;
-  const picked = [];
-  for (const skill of library.skills) {
-    const candidates = skill.items
-      .map((itemKey) => getItem(itemKey))
-      .filter((item) => (progress().items[item.key]?.state ?? "new") === "new" && isEligible(item));
-    candidates.sort((a, b) => Number(keyFor(b).auto) - Number(keyFor(a).auto));
-    picked.push(...candidates.slice(0, perSkill).map((item) => entry(item.key, "placement")));
-  }
-  return interleave(picked.slice(0, 10));
-}
-
-export function capstoneItems(libKey, size) {
-  const library = catalog().libraries.find((entryLib) => entryLib.key === libKey);
-  if (!library) {
-    return [];
-  }
-  const perSkill = Math.max(1, Math.ceil(size / Math.max(1, library.skills.length)));
-  const picked = [];
-  for (const skill of library.skills) {
-    const items = shuffle(skill.items.filter((itemKey) => isEligible(getItem(itemKey)) && isSkillUnlocked(skill.key)));
-    picked.push(...items.slice(0, perSkill).map((itemKey) => entry(itemKey, "capstone")));
-  }
-  return interleave(shuffle(picked).slice(0, size));
-}
-
-function shuffle(list) {
+export function shuffle(list) {
   const copy = [...list];
   for (let index = copy.length - 1; index > 0; index -= 1) {
     const swap = Math.floor(Math.random() * (index + 1));
     [copy[index], copy[swap]] = [copy[swap], copy[index]];
   }
   return copy;
+}
+
+export function openMistakeCount() {
+  return Object.values(progress().mistakes).filter((mistake) => !mistake.resolvedAt && getItem(mistake.item)).length;
 }

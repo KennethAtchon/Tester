@@ -1,0 +1,443 @@
+{
+  "id": "news-feed",
+  "title": "Design a Social News Feed",
+  "summary": "Fan-out, celebrities, and a feed that loads in 200 ms.",
+  "difficulty": "Intermediate",
+  "minutes": 40,
+  "brief": "Design the home feed for a social network. **300M daily active users** each open their feed about **10 times a day**, post about **once a day**, and follow about **200 accounts**, and a few celebrity accounts have **50M+ followers**. The feed shows posts (text, photos, short videos) from the accounts you follow, newest or best first, and must load in under 200 ms at p99. A new post should reach followers' feeds within a few seconds, but it doesn't have to be instant.",
+  "stages": [
+    {
+      "id": "requirements",
+      "title": "Requirements",
+      "steps": [
+        {
+          "id": "feed-scope-sort",
+          "type": "sort",
+          "prompt": "Sort each statement: is it a functional requirement, a non-functional requirement, or out of scope for v1?",
+          "buckets": ["Functional", "Non-functional", "Out of scope"],
+          "items": [
+            { "text": "Publish a post with text and photos", "bucket": "Functional" },
+            { "text": "See a feed of posts from accounts you follow", "bucket": "Functional" },
+            { "text": "Follow and unfollow accounts", "bucket": "Functional" },
+            { "text": "The feed loads in under 200 ms at p99", "bucket": "Non-functional" },
+            { "text": "New posts reach followers' feeds within about 5 seconds", "bucket": "Non-functional", "why": "This is a freshness target: it says the system can be eventually consistent, and how eventual is acceptable." },
+            { "text": "Show a slightly stale feed rather than an error", "bucket": "Non-functional", "why": "It chooses availability over consistency, which is a quality of the system, not a feature." },
+            { "text": "Direct messages between users", "bucket": "Out of scope", "why": "Messaging is a separate system with different delivery guarantees." },
+            { "text": "Ad auctions and targeting", "bucket": "Out of scope" }
+          ],
+          "why": "Functional requirements say what users can do. Non-functional ones set the bar for speed, freshness and availability, and here they explicitly allow eventual consistency. That permission is what makes precomputed feeds possible."
+        },
+        {
+          "id": "feed-core-features",
+          "type": "choice",
+          "prompt": "Which features is the feed system built around? Pick all that apply.",
+          "options": [
+            "Publish a post",
+            "Load your home feed",
+            "Follow other accounts",
+            "Trending topics across the whole network",
+            "Stories that disappear after 24 hours",
+            "Full-text search over all posts"
+          ],
+          "answer": ["Publish a post", "Load your home feed", "Follow other accounts"],
+          "misconceptions": {
+            "Trending topics across the whole network": "Trends come from a separate stream-processing pipeline that counts hashtags. They don't shape how a personal feed is built.",
+            "Stories that disappear after 24 hours": "Stories are a separate product with their own expiring storage. Leave them out of v1.",
+            "Full-text search over all posts": "Search needs an inverted index fed from the post stream. It's a system of its own and isn't needed to show a feed."
+          },
+          "why": "Posting (writes), following (the social graph), and loading the feed (reads) are the three flows. The whole design comes down to how a post travels from its author to the feeds of everyone who follows them."
+        },
+        {
+          "id": "feed-requirements-recap",
+          "type": "concept",
+          "title": "What we agreed to build",
+          "body": "**Features:** publish posts with photos or video, follow and unfollow, and load a home feed of followed accounts, newest or best first.\n\n**Targets:** 300M DAU, 10 feed loads and 1 post per user per day, about 200 follows each, celebrities with 50M+ followers, feed p99 under 200 ms, and new posts visible within seconds (eventual consistency is fine).",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "300M", "label": "daily active users" },
+              { "value": "10 / 1", "label": "feed loads / posts per user per day" },
+              { "value": "~200", "label": "accounts followed" },
+              { "value": "50M+", "label": "followers of the biggest accounts" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "estimation",
+      "title": "Estimation",
+      "steps": [
+        {
+          "id": "post-qps",
+          "type": "estimate",
+          "prompt": "About how many posts are published per second, on average?",
+          "given": [
+            ["Daily active users", "300M"],
+            ["Posts per user per day", "≈ 1"],
+            ["Seconds per day", "≈ 100K (86,400)"]
+          ],
+          "answer": 3000,
+          "unit": "posts/sec",
+          "tolerance": 0.4,
+          "solution": [
+            "300M × 1 = 300M posts/day",
+            "300M ÷ 100K s = **3,000 posts/sec**"
+          ],
+          "why": "3K writes a second is substantial but ordinary for a sharded store. The expensive part is delivering each post to everyone who follows its author."
+        },
+        {
+          "id": "feed-read-qps",
+          "type": "estimate",
+          "prompt": "About how many feed loads per second, on average?",
+          "given": [
+            ["Daily active users", "300M"],
+            ["Feed loads per user per day", "≈ 10"],
+            ["Seconds per day", "≈ 100K"]
+          ],
+          "answer": 30000,
+          "unit": "feed loads/sec",
+          "tolerance": 0.4,
+          "solution": [
+            "300M × 10 = 3B feed loads/day",
+            "3B ÷ 100K s = **30,000 feed loads/sec**"
+          ],
+          "why": "Feed loads outnumber posts 10 to 1, and each load has to assemble a whole page from many authors. That imbalance is the argument for doing the work when a post is written, not when a feed is read."
+        },
+        {
+          "id": "fanout-inserts",
+          "type": "estimate",
+          "prompt": "If every new post is pushed into each follower's cached feed, how many feed inserts per second is that?",
+          "given": [
+            ["Posts per second", "≈ 3,000"],
+            ["Average followers per author", "≈ 200 (equal to average follows, since every follow edge has one of each)"]
+          ],
+          "answer": 600000,
+          "unit": "inserts/sec",
+          "tolerance": 0.4,
+          "solution": [
+            "3,000 posts/sec × 200 followers = **600,000 feed inserts/sec**"
+          ],
+          "why": "Fan-out on write multiplies the write load by follower count. 600K tiny inserts a second is fine for a sharded in-memory store, but the average hides the skew: a single celebrity post would mean 50M inserts on its own."
+        },
+        {
+          "id": "feed-cache-size",
+          "type": "estimate",
+          "prompt": "How much memory does a precomputed feed for every daily user take, if you store only post IDs?",
+          "given": [
+            ["Daily active users", "300M"],
+            ["Entries kept per feed", "≈ 500"],
+            ["Bytes per entry", "≈ 20 (post ID, author ID, overhead)"]
+          ],
+          "answer": 3,
+          "unit": "TB",
+          "tolerance": 0.4,
+          "solution": [
+            "300M × 500 = 150B feed entries",
+            "150B × 20 B = 3,000 GB ≈ **3 TB**"
+          ],
+          "why": "3 TB of RAM is a few dozen cache nodes, which is affordable because the feeds hold IDs, not posts. Copying full ~1 KB posts into every feed would need about 150 TB."
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "title": "API",
+      "steps": [
+        {
+          "id": "feed-api",
+          "type": "api",
+          "prompt": "Design the API for the signed-in user. For each purpose, pick an HTTP method and write a path. Use `{id}` for another user's ID.",
+          "endpoints": [
+            {
+              "purpose": "Publish a new post",
+              "method": "POST",
+              "path": ["/posts", "/me/posts", "/users/me/posts", "/users/{id}/posts", "/feed", "/me/feed", "/statuses"]
+            },
+            {
+              "purpose": "Load your home feed, one page at a time",
+              "method": "GET",
+              "path": ["/feed", "/me/feed", "/users/me/feed", "/users/{id}/feed", "/home", "/home-feed", "/timeline", "/me/timeline", "/timelines/home", "/feeds/{id}", "/newsfeed", "/me/newsfeed"]
+            },
+            {
+              "purpose": "Follow another user",
+              "method": ["POST", "PUT"],
+              "path": ["/users/{id}/follow", "/users/{id}/followers", "/me/following/{id}", "/users/me/following/{id}", "/following/{id}", "/follows/{id}", "/follows", "/following", "/me/following", "/me/follows"]
+            },
+            {
+              "purpose": "Unfollow a user",
+              "method": "DELETE",
+              "path": ["/users/{id}/follow", "/users/{id}/followers", "/me/following/{id}", "/users/me/following/{id}", "/following/{id}", "/follows/{id}"]
+            },
+            {
+              "purpose": "Start a photo or video upload (get an upload URL)",
+              "method": "POST",
+              "path": ["/media", "/uploads", "/upload", "/media/upload", "/media/uploads", "/media/upload-url", "/upload-url", "/posts/media", "/uploads/presign", "/media/presign"]
+            }
+          ],
+          "why": "Posts, follows and uploads are resources you create (POST, or PUT for an idempotent follow) or remove (DELETE). The feed is a read-only view of the signed-in user, so `GET /feed` needs no user ID. A separate upload endpoint hands out a URL, so large files go straight to object storage and never pass through your servers."
+        },
+        {
+          "id": "feed-pagination",
+          "type": "choice",
+          "context": "The feed returns 20 posts per page, and new posts keep arriving at the top while the user scrolls.",
+          "prompt": "How should the client ask for the next page?",
+          "options": [
+            "With a cursor: `?cursor=lastSeenPostId&limit=20`",
+            "With an offset: `?page=3&size=20`",
+            "Return the whole feed in one response",
+            "Re-fetch the first page with a bigger limit each time"
+          ],
+          "answer": "With a cursor: `?cursor=lastSeenPostId&limit=20`",
+          "misconceptions": {
+            "With an offset: `?page=3&size=20`": "If 5 posts arrive while you scroll, every offset shifts by 5, so the next page repeats posts you've already seen. Deep offsets also make the store scan and throw away rows.",
+            "Return the whole feed in one response": "Hundreds of posts with their metadata make a slow payload that's mostly wasted, because people read the top few.",
+            "Re-fetch the first page with a bigger limit each time": "Each request re-sends everything already shown, so cost grows with every scroll."
+          },
+          "why": "A cursor marks a stable position, such as the last post ID or timestamp seen. New posts at the top don't shift the next page, and the store can seek straight to that position."
+        }
+      ]
+    },
+    {
+      "id": "data",
+      "title": "Data model",
+      "steps": [
+        {
+          "id": "post-store-choice",
+          "type": "choice",
+          "context": "About 300M posts a day (over 100B a year). Posts are written once, rarely edited, read by post ID in batches, and never joined.",
+          "prompt": "Which store fits the posts table best?",
+          "options": [
+            "A wide-column or key-value store partitioned by post ID (Cassandra, DynamoDB)",
+            "A single relational database with an index on author_id",
+            "Object storage, one JSON file per post",
+            "A search index as the primary store",
+            "Only the feed cache, with no separate posts store"
+          ],
+          "answer": "A wide-column or key-value store partitioned by post ID (Cassandra, DynamoDB)",
+          "misconceptions": {
+            "A single relational database with an index on author_id": "Relational is fine for the data, but one machine can't hold 100B+ rows a year or 3K writes a second plus hydration reads. You'd have to shard it, and then you've lost joins anyway.",
+            "Object storage, one JSON file per post": "Object storage suits big blobs. Fetching 20 small posts per feed load would be 20 slow, per-request-billed GETs.",
+            "A search index as the primary store": "Search indexes are built from a source of truth and are tuned for queries, not durable writes. Feed them from the posts stream instead.",
+            "Only the feed cache, with no separate posts store": "The cache is a rebuildable copy that only holds IDs. Posts need a durable source of truth."
+          },
+          "why": "The access pattern is write once, then batch-get by key, at very high volume. Wide-column and key-value stores partition that horizontally and scale writes linearly. Alex Xu and DDIA both treat post storage as a partitioned key lookup."
+        },
+        {
+          "id": "where-data-lives",
+          "type": "match",
+          "prompt": "Match each piece of data to where it should live.",
+          "pairs": [
+            ["Post text and metadata", "NoSQL store keyed by post ID"],
+            ["Who follows whom", "Follow table indexed both by follower and by followee"],
+            ["Each user's precomputed feed", "Per-user list of post IDs in an in-memory cache"],
+            ["User profiles and settings", "Relational users table with a cache in front"]
+          ],
+          "why": "Each kind of data gets the store that fits its access pattern. Posts are high-volume key lookups, the follow graph must answer both \"who follows X\" and \"whom does X follow\", feeds are hot rebuildable lists, and profiles are small, relational and read constantly."
+        },
+        {
+          "id": "follow-key-fill",
+          "type": "fill",
+          "text": "Fan-out workers need an author's followers, so one copy of the follow graph is keyed by [[followee_id]]. The Following page needs whom a user follows, so a second copy is keyed by [[follower_id]]. Each user's feed is a [[sorted list]] of post IDs, newest first, capped at about [[500]] entries.",
+          "bank": ["followee_id", "follower_id", "sorted list", "500", "post_id", "hash set", "50M"],
+          "why": "Storing the follow graph twice, once per direction, makes both questions a single-key lookup instead of a scan. Capping each feed keeps memory bounded, because almost nobody scrolls past a few hundred posts."
+        }
+      ]
+    },
+    {
+      "id": "design",
+      "title": "High-level design",
+      "steps": [
+        {
+          "id": "feed-design-framing",
+          "type": "concept",
+          "title": "Three jobs, three services",
+          "body": "The **Post service** stores a new post and its media key. **Fan-out workers**, fed by a queue so posting stays fast, push the post ID into each follower's feed cache. The **Feed service** reads that list of IDs, fills in the posts and authors, ranks them, and returns a page. Photos and video live in object storage and reach users through a CDN.",
+          "visual": {
+            "kind": "flow",
+            "steps": ["Post service", "Queue", "Fan-out workers", "Feed cache", "Feed service"]
+          }
+        },
+        {
+          "id": "feed-hld",
+          "type": "build",
+          "prompt": "Draw the high-level design. It must accept posts with media, deliver post IDs into followers' feeds asynchronously, serve 30K feed loads a second from memory, and deliver images from the edge. Use a `service` for each named service and rename it (e.g. Post service, Feed service).",
+          "palette": ["client", "cdn", "lb", "app", "service", "queue", "worker", "cache", "db_nosql", "db_sql", "object_store", "search"],
+          "start": {
+            "nodes": [{ "id": "client", "type": "client", "x": 6, "y": 50 }],
+            "edges": []
+          },
+          "rules": {
+            "nodes": [
+              { "type": "app|service", "min": 2, "why": "Posting (3K/sec) and reading (30K/sec) scale very differently, so separate Post and Feed services can each scale on their own." },
+              { "type": "cache", "why": "Precomputed feeds of post IDs live in memory, so a feed load is one lookup instead of about 200 queries." }
+            ],
+            "edges": [
+              { "from": "worker", "to": "cache", "why": "Fan-out workers push each new post ID into followers' cached feeds." },
+              { "from": "app|service", "to": "db", "why": "Posts are saved in a database. The cache is a rebuildable copy, not the source of truth." },
+              { "from": "app|service", "to": "cache", "why": "The Feed service reads each user's precomputed list of post IDs from the cache." }
+            ],
+            "paths": [
+              { "through": ["client", "lb", "app|service", "queue", "worker", "cache"], "why": "Posting returns quickly: the Post service enqueues the post, and workers fan it out to feeds in the background." },
+              { "through": ["client", "cdn", "object_store"], "why": "Photos and videos are stored in object storage and served from CDN edges near users, never through your app servers." }
+            ],
+            "forbidden": [
+              { "from": "client", "to": "db", "why": "Clients never query a database directly." },
+              { "from": "client", "to": "cache", "why": "Clients never read the feed cache directly. The Feed service checks permissions, fills in the posts, and ranks them first." }
+            ],
+            "connected": true,
+            "pass": 0.75
+          },
+          "solution": {
+            "nodes": [
+              { "id": "client", "type": "client", "x": 6, "y": 50 },
+              { "id": "cdn", "type": "cdn", "x": 24, "y": 14 },
+              { "id": "lb", "type": "lb", "x": 24, "y": 55 },
+              { "id": "post", "type": "service", "x": 42, "y": 38, "label": "Post service" },
+              { "id": "feed", "type": "service", "x": 42, "y": 78, "label": "Feed service" },
+              { "id": "media", "type": "object_store", "x": 60, "y": 14, "label": "Media storage" },
+              { "id": "queue", "type": "queue", "x": 60, "y": 38, "label": "New-post events" },
+              { "id": "posts", "type": "db_nosql", "x": 60, "y": 60, "label": "Posts DB" },
+              { "id": "fanout", "type": "worker", "x": 78, "y": 38, "label": "Fan-out workers" },
+              { "id": "feedcache", "type": "cache", "x": 78, "y": 78, "label": "Feed cache" },
+              { "id": "graph", "type": "db_sql", "x": 94, "y": 38, "label": "Follow graph" }
+            ],
+            "edges": [
+              { "from": "client", "to": "cdn" },
+              { "from": "cdn", "to": "media" },
+              { "from": "client", "to": "lb" },
+              { "from": "lb", "to": "post" },
+              { "from": "lb", "to": "feed" },
+              { "from": "post", "to": "media" },
+              { "from": "post", "to": "posts" },
+              { "from": "post", "to": "queue" },
+              { "from": "queue", "to": "fanout" },
+              { "from": "fanout", "to": "graph" },
+              { "from": "fanout", "to": "feedcache" },
+              { "from": "feed", "to": "feedcache" },
+              { "from": "feed", "to": "posts" }
+            ]
+          },
+          "why": "Writes and reads are split into separate services. A queue and workers move fan-out off the posting path, feeds are precomputed as ID lists in memory, the Feed service fills in posts from the posts DB, and media takes its own route through object storage and the CDN."
+        }
+      ]
+    },
+    {
+      "id": "deep-dive",
+      "title": "Deep dives",
+      "steps": [
+        {
+          "id": "default-fanout",
+          "type": "choice",
+          "context": "Feed loads run at about 30K/sec, posts at about 3K/sec, and the feed must load in under 200 ms. Ignore celebrities for now.",
+          "prompt": "When should a typical user's feed be assembled?",
+          "options": [
+            "On write: when someone posts, push the post ID into each follower's cached feed",
+            "On read: at load time, fetch recent posts from all ~200 followed accounts and merge them",
+            "Nightly: a batch job rebuilds every feed once a day",
+            "In the app: the client downloads each followed account's posts and merges them itself"
+          ],
+          "answer": "On write: when someone posts, push the post ID into each follower's cached feed",
+          "misconceptions": {
+            "On read: at load time, fetch recent posts from all ~200 followed accounts and merge them": "Pull makes posting cheap, but each of the 30K loads a second would fan out to about 200 lookups plus a merge. That's 6M reads a second, and the slowest of 200 calls sets your tail latency.",
+            "Nightly: a batch job rebuilds every feed once a day": "That breaks the requirement that new posts show up within seconds.",
+            "In the app: the client downloads each followed account's posts and merges them itself": "200 requests per load over a mobile network blows the 200 ms budget, and the client could see posts it isn't allowed to see."
+          },
+          "why": "Feed loads outnumber posts 10 to 1, so doing the work once per post (push) and making each load a single cache lookup is the better trade. Twitter built its home timeline this way (DDIA, chapter 1)."
+        },
+        {
+          "id": "celebrity-hybrid-text",
+          "type": "text",
+          "prompt": "A celebrity with 50M followers posts. Explain what goes wrong with pure fan-out on write, and how a hybrid design handles celebrity posts when they're written and when feeds are read.",
+          "concepts": [
+            {
+              "label": "Pure push means tens of millions of writes for one post",
+              "any": ["millions of writes", "millions of inserts", "millions of updates", "write amplification", "too many writes", "re:\\b50 ?m(illion)?\\b", "backlog"]
+            },
+            {
+              "label": "Celebrity posts are pulled at read time, not pushed",
+              "any": ["pull* read time", "pull* celebrit*", "fetch* celebrit*", "celebrit* read time", "skip fanout", "fanout on read", "exclud* celebrit*"]
+            },
+            {
+              "label": "Merged with the precomputed feed when it's read",
+              "any": ["merg*", "combin*", "interleav*", "mix* in", "stitch*", "union"]
+            },
+            {
+              "label": "Ordinary accounts still use push, split by a follower threshold",
+              "any": ["threshold", "normal user*", "regular user*", "most user*", "most account*", "ordinary", "follower count", "non celebrit*"]
+            }
+          ],
+          "pass": 3,
+          "model": "With pure fan-out on write, one celebrity post means 50M inserts: millions of writes that build a huge backlog and delay everyone's feeds. In a hybrid design, accounts above a follower-count threshold are not fanned out, and their posts are pulled at read time. Normal users still get fan-out on write. When someone loads the feed, the Feed service reads their precomputed list of post IDs, fetches recent posts from the few celebrities they follow, and merges them by time or score before ranking.",
+          "why": "The hybrid moves the cost to whichever side is cheaper. For most accounts the writer pays once per follower. For a few hundred huge accounts, each reader pays a few extra lookups, which are cheap and easy to cache, so no single post triggers 50M writes."
+        },
+        {
+          "id": "publish-path",
+          "type": "order",
+          "prompt": "Put the life of a new photo post in order, from upload to followers' feeds.",
+          "items": [
+            "The client uploads the photo straight to object storage with a pre-signed URL",
+            "The client calls POST /posts with the text and the uploaded photo's key",
+            "The Post service writes the post to the posts DB",
+            "The Post service enqueues a fan-out job and returns 201 to the client",
+            "Fan-out workers fetch the author's follower IDs from the follow graph",
+            "Workers prepend the post ID to each follower's cached feed"
+          ],
+          "why": "The client gets its 201 as soon as the post is durably stored and queued. Fan-out happens afterwards, which is why followers see the post a few seconds later rather than instantly. The requirements allow exactly that."
+        },
+        {
+          "id": "media-storage",
+          "type": "choice",
+          "prompt": "Posts include photos and short videos. Where should the bytes live, and how do viewers get them?",
+          "options": [
+            "In object storage, served through a CDN, with the post storing only a media key",
+            "As BLOB columns in the posts database",
+            "Inline in each follower's feed cache entry",
+            "On the local disk of whichever app server handled the upload"
+          ],
+          "answer": "In object storage, served through a CDN, with the post storing only a media key",
+          "misconceptions": {
+            "As BLOB columns in the posts database": "Large blobs bloat the database and slow replication and backups, and every view would hit your database instead of an edge cache.",
+            "Inline in each follower's feed cache entry": "That copies megabytes into millions of feeds. Feed entries should be ~20-byte IDs.",
+            "On the local disk of whichever app server handled the upload": "App servers are stateless and replaceable. A file on one server is invisible to the others and is lost when that server dies."
+          },
+          "why": "Object storage is cheap and durable for blobs, and a CDN serves them from locations near viewers. That way media never crosses your app servers on the read path, and popular images are served from the CDN's cache."
+        },
+        {
+          "id": "feed-ids-only",
+          "type": "choice",
+          "prompt": "The feed cache holds post IDs, and the Feed service fills in the full posts (hydrates them) when a feed is read. Which of these are real benefits? Pick all that apply.",
+          "options": [
+            "Far more feeds fit in memory (~20 B per entry vs ~1 KB per post)",
+            "Editing or deleting a post changes one record, not millions of feed copies",
+            "Viewers see current like counts and author names, fetched at read time",
+            "Feed loads no longer need to touch any other store",
+            "Feeds become strongly consistent"
+          ],
+          "answer": [
+            "Far more feeds fit in memory (~20 B per entry vs ~1 KB per post)",
+            "Editing or deleting a post changes one record, not millions of feed copies",
+            "Viewers see current like counts and author names, fetched at read time"
+          ],
+          "misconceptions": {
+            "Feed loads no longer need to touch any other store": "It's the opposite: hydration adds a batched multi-get to the post and user caches. That round trip is cheap, but it's there.",
+            "Feeds become strongly consistent": "Fan-out is asynchronous, so a new post lands in feeds seconds later. The system is eventually consistent by design."
+          },
+          "why": "Storing references instead of copies keeps feeds small and keeps the post itself as the single source of truth. The price is one batched lookup per page, and post and user caches make it cheap."
+        },
+        {
+          "id": "ranking-stages",
+          "type": "match",
+          "prompt": "Ranking runs inside the Feed service on every load. Match each stage to its job.",
+          "pairs": [
+            ["Candidate generation", "Gather a few hundred post IDs from the feed cache plus recent celebrity posts"],
+            ["Filtering", "Drop deleted posts, blocked authors, and posts already seen"],
+            ["Scoring", "Predict engagement from recency, closeness to the author, and post type"],
+            ["Hydration", "Batch-fetch post bodies, author profiles, and counts for the page being returned"]
+          ],
+          "why": "Ranking only scores a few hundred candidates per request, which keeps it cheap enough for a 200 ms budget. Hydrating only the page you return, not every candidate, avoids fetching posts nobody will see."
+        }
+      ]
+    }
+  ]
+}

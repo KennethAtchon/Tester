@@ -1,15 +1,16 @@
 {
   "name": "test-form-maker",
   "version": "0.1.0",
-  "description": "Desktop learning studio: spaced, effortful retrieval practice over JSON question banks, plus Markdown export for AI review.",
+  "description": "Brilliant-style desktop learning app: interactive lessons, learning games, spaced review, and an end-to-end System Design course with auto-graded designs.",
   "main": "src/main.js",
   "scripts": {
     "start": "env -u ELECTRON_RUN_AS_NODE electron ."
   },
   "keywords": [
     "electron",
-    "tests",
-    "markdown"
+    "learning",
+    "spaced-repetition",
+    "system-design"
   ],
   "author": "",
   "license": "MIT",

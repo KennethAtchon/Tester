@@ -1,0 +1,23 @@
+{
+  "id": "system-design",
+  "title": "System Design, End to End",
+  "tagline": "From a vague prompt to a design you can defend.",
+  "description": "Learn the whole system design process the way it's used in real interviews and real teams: pin down requirements, estimate the load, design the API and data model, draw the architecture, then go deep on caching, sharding, consistency, and failure. Finish by building complete systems in the Design Lab, graded automatically.",
+  "color": "#2f6df6",
+  "units": [
+    "units/01-foundations.json",
+    "units/02-requirements.json",
+    "units/03-estimation.json",
+    "units/04-api-design.json",
+    "units/05-data-modeling.json",
+    "units/06-building-blocks.json",
+    "units/07-scaling-data.json",
+    "units/08-reliability.json"
+  ],
+  "projects": [
+    "projects/url-shortener.json",
+    "projects/news-feed.json",
+    "projects/chat-app.json",
+    "projects/video-streaming.json"
+  ]
+}

@@ -1,0 +1,428 @@
+{
+  "id": "url-shortener",
+  "title": "Design a URL Shortener",
+  "summary": "Short links, billions of redirects.",
+  "difficulty": "Beginner",
+  "minutes": 30,
+  "brief": "Build a service like bit.ly: someone pastes a long URL and gets back a short link such as `sho.rt/aZ3kQ9x`, and anyone who opens it is sent to the original page. Expect about **100M new links a month**, read **100 times for every write**, so roughly 10B redirects a month. Links are kept for **5 years**. Redirects must feel instant (under 100 ms at p99) and keep working when a server or a whole zone fails. Link owners also want to know how often their links are clicked.",
+  "stages": [
+    {
+      "id": "requirements",
+      "title": "Requirements",
+      "steps": [
+        {
+          "id": "scope-sort",
+          "type": "sort",
+          "prompt": "Sort each statement: is it a functional requirement, a non-functional requirement, or out of scope for v1?",
+          "buckets": ["Functional", "Non-functional", "Out of scope"],
+          "items": [
+            { "text": "Shorten a long URL into a short link", "bucket": "Functional" },
+            { "text": "Opening a short link redirects to the original URL", "bucket": "Functional" },
+            { "text": "Show the owner how many times a link was clicked", "bucket": "Functional" },
+            { "text": "Owners can delete a link they created", "bucket": "Functional" },
+            { "text": "Redirects complete in under 100 ms at p99", "bucket": "Non-functional", "why": "It says how fast, not what the system does." },
+            { "text": "Redirects keep working if a server or zone fails", "bucket": "Non-functional", "why": "Availability is a quality of the system, not a feature." },
+            { "text": "Change where an existing short link points", "bucket": "Out of scope", "why": "Editing destinations clashes with cached redirects and invites bait-and-switch abuse, so v1 leaves it out." },
+            { "text": "A QR-code designer with custom logos", "bucket": "Out of scope", "why": "Nice for marketers, but it's a separate product that doesn't shape the core design." }
+          ],
+          "why": "Functional requirements say what the system does. Non-functional ones say how well it must do it. Writing down what's out of scope keeps the design from growing into a different product."
+        },
+        {
+          "id": "core-features",
+          "type": "choice",
+          "prompt": "Which features is the whole design built around? Pick all that apply.",
+          "options": [
+            "Create a short link for a long URL",
+            "Redirect a short code to its long URL",
+            "Count clicks per link",
+            "Custom vanity aliases like sho.rt/launch",
+            "Link previews with page thumbnails",
+            "Per-user dashboards with charts"
+          ],
+          "answer": ["Create a short link for a long URL", "Redirect a short code to its long URL", "Count clicks per link"],
+          "misconceptions": {
+            "Custom vanity aliases like sho.rt/launch": "A nice extra, and easy to add later: at create time, check that the alias isn't taken. It doesn't change the architecture.",
+            "Link previews with page thumbnails": "That means fetching and rendering every destination page, which is a separate crawler system.",
+            "Per-user dashboards with charts": "Charts are UI on top of click counts. Build the counting pipeline first; dashboards read from it."
+          },
+          "why": "Creating links (the write path), redirecting (the hot read path), and counting clicks (the analytics path) are the three flows that shape the architecture. Everything else hangs off them."
+        },
+        {
+          "id": "requirements-recap",
+          "type": "concept",
+          "title": "What we agreed to build",
+          "body": "**Features:** create a short link, redirect from it, count its clicks, and let owners delete their links.\n\n**Targets:** 100M new links a month, 100 reads per write, links kept 5 years, redirects under 100 ms at p99, highly available.\n\n**Out of scope:** editing destinations, QR designer, vanity aliases.",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "100M", "label": "new links / month" },
+              { "value": "100 : 1", "label": "reads : writes" },
+              { "value": "5 years", "label": "retention" },
+              { "value": "< 100 ms", "label": "p99 redirect" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "estimation",
+      "title": "Estimation",
+      "steps": [
+        {
+          "id": "write-qps",
+          "type": "estimate",
+          "prompt": "About how many new links are created per second, on average?",
+          "given": [
+            ["New links per month", "100M"],
+            ["Days per month", "≈ 30"],
+            ["Seconds per day", "≈ 100K (86,400)"]
+          ],
+          "answer": 30,
+          "unit": "writes/sec",
+          "tolerance": 0.4,
+          "solution": [
+            "100M ÷ 30 days ≈ 3.3M links/day",
+            "3.3M ÷ 100K s ≈ 33, so **about 30 writes/sec**"
+          ],
+          "hint": "Get to links per day first, then divide by seconds per day.",
+          "why": "Thirty writes a second is light work for any database. The interesting load in this system will be on the read side."
+        },
+        {
+          "id": "read-qps",
+          "type": "estimate",
+          "prompt": "About how many redirects per second, on average?",
+          "given": [
+            ["Average write QPS", "≈ 30"],
+            ["Reads per write", "100"]
+          ],
+          "answer": 3000,
+          "unit": "redirects/sec",
+          "tolerance": 0.4,
+          "solution": [
+            "30 writes/sec × 100 = **3,000 redirects/sec**",
+            "Peaks run 2–3× the average, so plan for 6K–10K/sec"
+          ],
+          "why": "The redirect path is 100× hotter than the create path, so that's where load balancing and caching pay off."
+        },
+        {
+          "id": "storage-5y",
+          "type": "estimate",
+          "prompt": "How much storage do the link records need after 5 years?",
+          "given": [
+            ["New links per month", "100M"],
+            ["Retention", "5 years = 60 months"],
+            ["Bytes per link record", "≈ 500 (long URL, code, owner, timestamps)"]
+          ],
+          "answer": 3,
+          "unit": "TB",
+          "tolerance": 0.4,
+          "solution": [
+            "100M × 60 months = 6B links",
+            "6B × 500 B = 3,000 GB ≈ **3 TB**"
+          ],
+          "why": "A few terabytes is modest, and a partitioned key-value store holds it easily. The pressure in this system comes from read QPS, not bytes. Remember the 6B total: it decides how long the codes must be."
+        },
+        {
+          "id": "cache-size",
+          "type": "estimate",
+          "prompt": "Using the 80/20 rule, how much memory would caching the hottest 20% of a day's redirects take?",
+          "given": [
+            ["Average redirect QPS", "≈ 3,000"],
+            ["Seconds per day", "≈ 100K"],
+            ["Share of daily redirects to cache", "20%"],
+            ["Bytes per cached link", "≈ 500"]
+          ],
+          "answer": 30,
+          "unit": "GB",
+          "tolerance": 0.4,
+          "solution": [
+            "3,000 × 100K s = 300M redirects/day",
+            "20% × 300M = 60M cache entries",
+            "60M × 500 B = **30 GB**"
+          ],
+          "why": "30 GB fits in the RAM of one or two cache nodes. Hot links repeat many times a day, so the real number of unique entries is smaller. Treat this as an upper bound."
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "title": "API",
+      "steps": [
+        {
+          "id": "shortener-api",
+          "type": "api",
+          "prompt": "Design the public API. For each purpose, pick an HTTP method and write a path. Use `{code}` for the short code.",
+          "endpoints": [
+            {
+              "purpose": "Create a short link for a long URL",
+              "method": "POST",
+              "path": ["/urls", "/links", "/shorten", "/short-urls", "/urls/shorten", "/links/shorten", "/data/shorten"]
+            },
+            {
+              "purpose": "Send a visitor from a short link to its long URL",
+              "method": "GET",
+              "path": ["/{code}", "/r/{code}", "/s/{code}", "/go/{code}", "/urls/{code}", "/links/{code}"]
+            },
+            {
+              "purpose": "Get click stats for one of your links",
+              "method": "GET",
+              "path": ["/urls/{code}/stats", "/links/{code}/stats", "/urls/{code}/clicks", "/links/{code}/clicks", "/urls/{code}/analytics", "/links/{code}/analytics", "/stats/{code}", "/analytics/{code}", "/clicks/{code}", "/{code}/stats"]
+            },
+            {
+              "purpose": "Delete a link you created",
+              "method": "DELETE",
+              "path": ["/urls/{code}", "/links/{code}", "/{code}", "/short-urls/{code}"]
+            }
+          ],
+          "why": "Creating a link makes a new resource, so it's a POST. The redirect is a plain GET on the shortest possible path, because the short URL *is* the API. Stats and delete belong to the link resource."
+        },
+        {
+          "id": "redirect-response",
+          "type": "choice",
+          "prompt": "How should `GET /{code}` send the browser on to the long URL?",
+          "options": [
+            "A 3xx status with the long URL in the `Location` header",
+            "200 OK with the long URL in a JSON body",
+            "200 OK with an HTML page whose JavaScript changes the page location",
+            "404 Not Found with the long URL in the error message"
+          ],
+          "answer": "A 3xx status with the long URL in the `Location` header",
+          "misconceptions": {
+            "200 OK with the long URL in a JSON body": "Browsers don't follow URLs found in a JSON body, so whoever clicked would just see text.",
+            "200 OK with an HTML page whose JavaScript changes the page location": "It works in a browser, but it adds a page render and fails for clients that don't run JavaScript, such as curl, crawlers, and chat-app link previews."
+          },
+          "why": "Every HTTP client already knows how to follow a redirect: the 3xx status says \"go elsewhere\" and `Location` says where. Whether that should be a 301 or a 302 is a deep-dive question."
+        }
+      ]
+    },
+    {
+      "id": "data",
+      "title": "Data model",
+      "steps": [
+        {
+          "id": "store-choice",
+          "type": "choice",
+          "context": "Every redirect looks up one row by its short code. There are no joins, about 6B rows (≈ 3 TB) after 5 years, and 100 reads for every write.",
+          "prompt": "Which store fits the links table best?",
+          "options": [
+            "A key-value store keyed by short code (DynamoDB, Cassandra)",
+            "A data warehouse (BigQuery, Redshift)",
+            "A search index (Elasticsearch)",
+            "Object storage, one file per link (S3)",
+            "A graph database (Neo4j)"
+          ],
+          "answer": "A key-value store keyed by short code (DynamoDB, Cassandra)",
+          "misconceptions": {
+            "A data warehouse (BigQuery, Redshift)": "Warehouses scan columns for big analytical queries and take seconds, not milliseconds. They're the right home for click analytics, but not for the links themselves.",
+            "A search index (Elasticsearch)": "Search indexes serve full-text and filtered queries. We only ever look up one exact key.",
+            "Object storage, one file per link (S3)": "Each GET costs tens of milliseconds and is billed per request. That's fine for big blobs but wasteful for 500-byte rows read thousands of times a second.",
+            "A graph database (Neo4j)": "There are no relationships to traverse here, because each link stands alone."
+          },
+          "why": "The access pattern is a single-key get or put with no joins, which key-value stores partition and scale with little effort. A sharded relational database works too, and that's the choice in Alex Xu's design. What decides it is the access pattern, not the product name."
+        },
+        {
+          "id": "entity-fields",
+          "type": "sort",
+          "prompt": "Which entity does each field belong to?",
+          "buckets": ["Link", "Click event", "User"],
+          "items": [
+            { "text": "short_code (primary key)", "bucket": "Link" },
+            { "text": "long_url", "bucket": "Link" },
+            { "text": "expires_at", "bucket": "Link" },
+            { "text": "owner_id", "bucket": "Link", "why": "The link records who created it, so only the owner can delete it or see its stats." },
+            { "text": "clicked_at", "bucket": "Click event" },
+            { "text": "referrer and country", "bucket": "Click event" },
+            { "text": "email", "bucket": "User" },
+            { "text": "api_key_hash", "bucket": "User" }
+          ],
+          "why": "Links are small, unchanging rows that every redirect reads. Click events are an append-only stream, written once per redirect and analyzed later. That's why they're stored separately and not as a counter column on the hot link row."
+        },
+        {
+          "id": "partition-key-fill",
+          "type": "fill",
+          "text": "Make the [[short code]] the primary key and partition rows by its [[hash]], so every redirect is a single-key read on one shard. Partitioning by [[creation time|created_at]] instead would send all of today's new links to one [[hot shard|hot partition]].",
+          "bank": ["short code", "hash", "creation time", "hot shard", "long URL", "owner ID"],
+          "why": "Hash partitioning spreads keys evenly and keeps each redirect on a single shard. Keys ordered by time or by sequence cluster all new writes on the newest partition and create a hot spot, especially when codes come from a counter."
+        }
+      ]
+    },
+    {
+      "id": "design",
+      "title": "High-level design",
+      "steps": [
+        {
+          "id": "design-framing",
+          "type": "concept",
+          "title": "Two paths, very different loads",
+          "body": "The **write path** (create a link) runs about 30 times a second and needs a unique code. The **read path** (redirect) runs about 3,000 times a second and must answer in milliseconds. Design for the read path first: stateless app servers behind a load balancer, a cache in front of the store, and click logging moved off to the side.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "Write path", "points": ["~30 per second", "Needs a unique short code", "A few extra ms is fine"] },
+            "right": { "title": "Read path", "points": ["~3,000 per second, more at peak", "One lookup by key", "Hot links repeat, so cache them", "Log clicks asynchronously"] }
+          }
+        },
+        {
+          "id": "shortener-hld",
+          "type": "build",
+          "prompt": "Draw the high-level design. It must create links with unique codes, serve thousands of redirects a second (mostly from memory), and count clicks without slowing redirects down. Drag components from the palette and connect them.",
+          "palette": ["client", "lb", "app", "cache", "db_nosql", "db_sql", "id_gen", "queue", "worker", "warehouse", "search", "ws"],
+          "start": {
+            "nodes": [{ "id": "client", "type": "client", "x": 6, "y": 45 }],
+            "edges": []
+          },
+          "rules": {
+            "nodes": [
+              { "type": "lb", "why": "Peak traffic and surviving a server failure both call for several app servers behind a load balancer." },
+              { "type": "cache", "why": "There are 100 redirects for every write, and hot links repeat, so a cache answers most redirects from memory." },
+              { "type": "id_gen", "why": "Unique short codes need a collision-free source of IDs that every app server shares." }
+            ],
+            "edges": [
+              { "from": "app", "to": "cache", "why": "App servers check the cache first and fill it on a miss (cache-aside)." },
+              { "from": "app", "to": "id_gen", "why": "The create path asks the ID generator for the next unique number, then base62-encodes it." }
+            ],
+            "paths": [
+              { "through": ["client", "lb", "app", "db"], "why": "On a cache miss, a redirect must be able to reach the stored mapping." },
+              { "through": ["app", "queue", "worker", "warehouse"], "why": "Click events go onto a queue, and workers load them into the warehouse, so analytics never slow down a redirect." }
+            ],
+            "forbidden": [
+              { "from": "client", "to": "db", "why": "Clients never talk to the database directly; the app enforces validation, auth, and caching." },
+              { "from": "app", "to": "warehouse", "why": "Writing each click straight into the warehouse puts a slow, batch-oriented store on the redirect hot path." }
+            ],
+            "connected": true,
+            "pass": 0.75
+          },
+          "solution": {
+            "nodes": [
+              { "id": "client", "type": "client", "x": 6, "y": 45 },
+              { "id": "lb", "type": "lb", "x": 22, "y": 45 },
+              { "id": "app", "type": "app", "x": 40, "y": 45, "label": "Shortener service" },
+              { "id": "idgen", "type": "id_gen", "x": 40, "y": 14 },
+              { "id": "cache", "type": "cache", "x": 62, "y": 26, "label": "Link cache" },
+              { "id": "links", "type": "db_nosql", "x": 82, "y": 45, "label": "Links store" },
+              { "id": "queue", "type": "queue", "x": 56, "y": 78, "label": "Click events" },
+              { "id": "worker", "type": "worker", "x": 74, "y": 78, "label": "Analytics workers" },
+              { "id": "warehouse", "type": "warehouse", "x": 92, "y": 78 }
+            ],
+            "edges": [
+              { "from": "client", "to": "lb" },
+              { "from": "lb", "to": "app" },
+              { "from": "app", "to": "idgen" },
+              { "from": "app", "to": "cache" },
+              { "from": "app", "to": "links" },
+              { "from": "app", "to": "queue" },
+              { "from": "queue", "to": "worker" },
+              { "from": "worker", "to": "warehouse" }
+            ]
+          },
+          "why": "Stateless app servers behind a load balancer carry the traffic. A cache absorbs the read-heavy redirects, an ID generator guarantees unique codes, and a queue moves click logging off the hot path into a warehouse."
+        }
+      ]
+    },
+    {
+      "id": "deep-dive",
+      "title": "Deep dives",
+      "steps": [
+        {
+          "id": "code-length",
+          "type": "choice",
+          "context": "Over 5 years you'll store about 6B links. Codes use base62: a–z, A–Z and 0–9.",
+          "prompt": "What is the **shortest** code length that can give every link its own code?",
+          "options": ["5 characters", "6 characters", "7 characters", "8 characters"],
+          "answer": "6 characters",
+          "misconceptions": {
+            "5 characters": "62^5 ≈ 916M, which isn't even one year of links (1.2B).",
+            "7 characters": "7 is the usual *choice*, since 62^7 ≈ 3.5 trillion leaves plenty of headroom. But it isn't the minimum: 62^6 ≈ 57B already covers 6B.",
+            "8 characters": "62^8 ≈ 218 trillion is far more than needed, and every extra character makes the link longer."
+          },
+          "why": "62^6 ≈ 57B, which is more than 6B, so 6 characters fit. Most designs still pick 7 (≈ 3.5 trillion codes). That leaves room to grow, and it keeps random or hashed codes sparse, so collisions and guessing are rare."
+        },
+        {
+          "id": "code-strategies",
+          "type": "match",
+          "prompt": "Match each way of generating short codes to its defining trade-off.",
+          "pairs": [
+            ["Base62-encode a number from a global ID generator", "Never collides, but sequential codes can be enumerated unless you scramble them"],
+            ["Hash the long URL and keep the first 7 characters", "The same URL always gets the same code, but truncated hashes collide, so check and retry with a salt"],
+            ["Pre-generate key ranges and lease a block to each server", "No coordination per request, but a crashed server wastes the rest of its block"],
+            ["Pick 7 random base62 characters", "No shared state at all, but every insert needs a conditional write that rejects duplicates"]
+          ],
+          "why": "At this scale all four work. Counter-based codes (Alex Xu's pick) avoid collisions entirely. Hashing deduplicates identical URLs but needs a collision check. Key ranges give up a little keyspace in exchange for zero coordination on each request."
+        },
+        {
+          "id": "redirect-status",
+          "type": "choice",
+          "context": "Marketing wants an accurate count of every click, including repeat clicks from the same browser.",
+          "prompt": "Which status code should redirects return?",
+          "options": ["301 Moved Permanently", "302 Found", "200 OK with a meta-refresh page", "410 Gone"],
+          "answer": "302 Found",
+          "misconceptions": {
+            "301 Moved Permanently": "Browsers cache a 301 and go straight to the long URL the next time, so repeat clicks never reach you and never get counted. Choose 301 when reducing load matters more than analytics.",
+            "200 OK with a meta-refresh page": "A meta refresh renders a page first, which is slower, and crawlers and link previews handle it worse than a real redirect.",
+            "410 Gone": "410 means the resource is gone for good. Use it for deleted or expired links, not live ones."
+          },
+          "why": "A 302 isn't cached by default, so every click comes back through your servers and can be counted. The price is more load, which the cache absorbs."
+        },
+        {
+          "id": "redirect-read-path",
+          "type": "order",
+          "prompt": "Put in order what happens when someone opens a short link that isn't cached yet.",
+          "items": [
+            "DNS resolves sho.rt to the load balancer",
+            "The load balancer forwards the request to an app server",
+            "The app server checks the cache for the code and misses",
+            "The app server reads the row from the links store and puts it in the cache",
+            "The app server returns 302 with the long URL in Location and publishes a click event",
+            "Later, a worker consumes the click event and writes it to the warehouse"
+          ],
+          "why": "This is cache-aside: check the cache, fall back to the store, then fill the cache so the next click is a hit. With LRU eviction, the cache keeps the small set of hot links and drops cold ones. Analytics happen after the response, off the hot path."
+        },
+        {
+          "id": "abuse-protection",
+          "type": "choice",
+          "context": "One API key suddenly starts creating 5,000 links a second, mostly pointing at phishing pages.",
+          "prompt": "Which measures address this? Pick all that apply.",
+          "options": [
+            "Rate-limit link creation per API key and per IP",
+            "Check destinations against a malware and phishing blocklist",
+            "Add app servers to absorb the burst",
+            "Switch redirects from 302 to 301",
+            "Lengthen codes to 8 characters"
+          ],
+          "answer": ["Rate-limit link creation per API key and per IP", "Check destinations against a malware and phishing blocklist"],
+          "misconceptions": {
+            "Add app servers to absorb the burst": "More capacity only helps the abuser create links faster. The problem is who is calling, not how much you can handle.",
+            "Switch redirects from 302 to 301": "Redirect caching affects analytics and load. It doesn't limit who can create links.",
+            "Lengthen codes to 8 characters": "Longer codes are harder to guess, but they don't stop anyone from creating malicious links."
+          },
+          "why": "A rate limiter (for example, a token bucket per key and IP that returns 429) caps how fast any one caller can create links. Screening destinations stops the links that do get created from pointing at known-bad sites."
+        },
+        {
+          "id": "analytics-queue-text",
+          "type": "text",
+          "prompt": "Why does the redirect publish a click event to a queue instead of incrementing a click counter in the database on every redirect?",
+          "concepts": [
+            {
+              "label": "Keeps the redirect fast (off the hot path)",
+              "any": ["hot path", "redirect* fast", "low latency", "add* latency", "respond immediately", "slow* redirect*", "wait* database"]
+            },
+            {
+              "label": "Avoids hot rows and write overload on the database",
+              "any": ["hot row", "hot key", "lock contention", "write load", "overload* database", "contention", "too many writes"]
+            },
+            {
+              "label": "The queue buffers bursts",
+              "any": ["buffer*", "absorb* spike*", "absorb* burst*", "traffic spike*", "smooth* load", "peak*", "surge*"]
+            },
+            {
+              "label": "Workers batch the work, decoupled from redirects",
+              "any": ["batch*", "aggregat*", "decoupl*", "analytics outage", "independent*", "separate worker*"]
+            }
+          ],
+          "pass": 3,
+          "model": "Publishing to a queue keeps analytics off the hot path: the redirect responds immediately instead of waiting on a database write, so latency stays low. Thousands of increments per second on a viral link would create a hot row with lock contention and overload the database. The queue acts as a buffer that absorbs spikes, and workers consume events and aggregate them in batches into the warehouse. Because the two are decoupled, an analytics outage never breaks redirects.",
+          "why": "Anything not needed to answer the request should leave the request path. A queue turns thousands of tiny synchronous writes into batched background work, and it isolates redirects from analytics failures."
+        }
+      ]
+    }
+  ]
+}

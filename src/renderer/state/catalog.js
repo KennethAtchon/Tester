@@ -1,63 +1,78 @@
-// Normalized view of every enrolled library: libraries → skills (tests) →
-// items (questions), each with a stable key so memory state survives reloads
-// and edits to the source JSON. Rebuilt lazily when the library set changes.
+// Every available course — built-in ones from the courses/ folder plus any the
+// learner imported — flattened into lookup tables with stable keys:
+//   unitKey    course::unit
+//   lessonKey  course::unit::lesson          (projects: course::lab::project)
+//   itemKey    lessonKey::step               (gradable steps only)
+// Memory, mastery, and progress are all keyed by these, so editing a course
+// file keeps a learner's history as long as the ids stay the same.
 
-import { normalizeLibrary } from "../domain/normalize.js";
-import { slugify } from "../lib/util.js";
+import { normalizeCourse, parseCourseSource, toCourse, GRADABLE_TYPES } from "../domain/courseFormat.js";
 import { progress, persist } from "./progress.js";
 
+let builtin = [];
+let loadErrors = [];
 let cache = null;
+
+export async function loadBuiltinCourses() {
+  let entries = [];
+  builtin = [];
+  loadErrors = [];
+  try {
+    entries = (await window.testFiles?.listBuiltinCourses?.()) || [];
+  } catch (error) {
+    loadErrors.push({ path: "courses/", error: error.message });
+  }
+  for (const entry of entries) {
+    if (entry.error) {
+      loadErrors.push({ path: entry.path, error: entry.error });
+      continue;
+    }
+    try {
+      builtin.push(normalizeCourse(toCourse(entry.course, entry.path), { source: "builtin" }));
+    } catch (error) {
+      loadErrors.push({ path: entry.path, error: error.message });
+    }
+  }
+  invalidateCatalog();
+}
 
 export function invalidateCatalog() {
   cache = null;
 }
 
 export function catalog() {
-  if (!cache) {
-    cache = buildCatalog();
-  }
+  cache ||= buildCatalog();
   return cache;
 }
 
-export function getItem(itemKey) {
-  return catalog().items.get(itemKey) ?? null;
-}
+export const getCourse = (id) => catalog().courses.find((course) => course.id === id) ?? null;
+export const getLesson = (key) => catalog().lessons.get(key) ?? null;
+export const getUnit = (key) => catalog().units.get(key) ?? null;
+export const getItem = (key) => catalog().items.get(key) ?? null;
+// The learner model calls lessons "skills" (mastery is tracked per lesson).
+export const getSkill = getLesson;
 
-export function getSkill(skillKey) {
-  return catalog().skills.get(skillKey) ?? null;
-}
-
-export function getLibrary(libKey) {
-  return catalog().libraries.find((library) => library.key === libKey) ?? null;
-}
-
-// Adds (or refreshes) a library from raw JSON. Throws if it doesn't validate.
-export function enrollLibrary(raw, { sourcePath = "", fileName = "" } = {}) {
-  const library = normalizeLibrary(raw);
-  const key = library.tent || slugify(library.title) || slugify(fileName.replace(/\.json$/i, "")) || `library-${Date.now()}`;
-  const libraries = progress().libraries;
-  const existing = libraries[key];
-
-  libraries[key] = {
-    key,
-    fileName,
-    sourcePath,
-    addedAt: existing?.addedAt ?? Date.now(),
-    updatedAt: Date.now(),
-    unlocked: existing?.unlocked ?? [],
-    raw
-  };
-
+// Adds a course from file text (JSON, old test format, or quick text).
+export function importCourse(text, fileName = "") {
+  const raw = parseCourseSource(text, fileName);
+  const course = normalizeCourse(raw, { source: "imported" });
+  let id = course.id;
+  if (builtin.some((entry) => entry.id === id)) {
+    id = `${id}-mine`;
+  }
+  const imports = progress().imports;
+  const isNew = !imports[id];
+  imports[id] = { raw: { ...raw, id }, fileName, addedAt: imports[id]?.addedAt ?? Date.now(), updatedAt: Date.now() };
   invalidateCatalog();
   persist();
-  return { key, isNew: !existing, library };
+  return { course: getCourse(id), isNew, warnings: course.warnings };
 }
 
-export function removeLibrary(libKey) {
+export function removeImportedCourse(id) {
   const data = progress();
-  delete data.libraries[libKey];
-  const prefix = `${libKey}::`;
-  for (const store of [data.items, data.skills, data.mistakes, data.keys]) {
+  delete data.imports[id];
+  const prefix = `${id}::`;
+  for (const store of [data.items, data.skills, data.mistakes, data.lessons, data.unlocked]) {
     for (const key of Object.keys(store)) {
       if (key.startsWith(prefix)) {
         delete store[key];
@@ -69,72 +84,94 @@ export function removeLibrary(libKey) {
 }
 
 function buildCatalog() {
-  const libraries = [];
-  const skills = new Map();
-  const items = new Map();
-  const broken = [];
-
-  for (const record of Object.values(progress().libraries)) {
-    let library;
+  const courses = [...builtin];
+  const errors = [...loadErrors];
+  for (const [id, record] of Object.entries(progress().imports)) {
     try {
-      library = normalizeLibrary(record.raw);
+      courses.push({ ...normalizeCourse(record.raw, { source: "imported" }), id, fileName: record.fileName, addedAt: record.addedAt });
     } catch (error) {
-      broken.push({ key: record.key, error: error.message });
-      continue;
+      errors.push({ path: record.fileName || id, error: error.message });
     }
-
-    const entry = {
-      key: record.key,
-      title: library.title,
-      description: library.description,
-      tent: library.tent,
-      sourcePath: record.sourcePath,
-      fileName: record.fileName,
-      addedAt: record.addedAt,
-      normalized: library,
-      skills: []
-    };
-
-    const testIds = new Set(library.tests.map((test) => test.id));
-
-    library.tests.forEach((test, testIndex) => {
-      const skillKey = `${record.key}::${test.id}`;
-      const skill = {
-        key: skillKey,
-        libKey: record.key,
-        libTitle: library.title,
-        index: testIndex,
-        title: test.title,
-        topic: test.topic,
-        instructions: test.instructions,
-        relevance: test.relevance,
-        prerequisites: test.prerequisites.filter((id) => testIds.has(id) && id !== test.id).map((id) => `${record.key}::${id}`),
-        test,
-        items: []
-      };
-
-      test.questions.forEach((question, questionIndex) => {
-        const itemKey = `${skillKey}::${question.id}`;
-        items.set(itemKey, {
-          key: itemKey,
-          libKey: record.key,
-          skillKey,
-          index: questionIndex,
-          question,
-          test,
-          skillTitle: test.title,
-          libTitle: library.title
-        });
-        skill.items.push(itemKey);
-      });
-
-      skills.set(skillKey, skill);
-      entry.skills.push(skill);
-    });
-
-    libraries.push(entry);
   }
 
-  libraries.sort((a, b) => (a.addedAt || 0) - (b.addedAt || 0));
-  return { libraries, skills, items, broken };
+  const lessons = new Map();
+  const units = new Map();
+  const items = new Map();
+  const projects = new Map();
+
+  for (const course of courses) {
+    course.lessonKeys = [];
+    course.unitKeys = [];
+    course.projectKeys = [];
+
+    course.units.forEach((unit, unitIndex) => {
+      const unitKey = `${course.id}::${unit.id}`;
+      const unitEntry = { key: unitKey, courseId: course.id, id: unit.id, index: unitIndex, title: unit.title, description: unit.description, lessons: [] };
+      units.set(unitKey, unitEntry);
+      course.unitKeys.push(unitKey);
+
+      unit.lessons.forEach((lesson, lessonIndex) => {
+        const key = `${unitKey}::${lesson.id}`;
+        const entry = {
+          key,
+          kind: "lesson",
+          courseId: course.id,
+          unitKey,
+          unitIndex,
+          index: lessonIndex,
+          order: course.lessonKeys.length,
+          title: lesson.title,
+          summary: lesson.summary,
+          minutes: lesson.minutes,
+          steps: lesson.steps,
+          items: [],
+          prerequisites: []
+        };
+        lesson.steps.forEach((step, stepIndex) => {
+          if (GRADABLE_TYPES.has(step.type)) {
+            const itemKey = `${key}::${step.id}`;
+            items.set(itemKey, { key: itemKey, lessonKey: key, skillKey: key, courseId: course.id, unitKey, step, index: stepIndex, kind: "lesson" });
+            entry.items.push(itemKey);
+          }
+        });
+        lessons.set(key, entry);
+        unitEntry.lessons.push(key);
+        course.lessonKeys.push(key);
+      });
+    });
+
+    for (const project of course.projects) {
+      const key = `${course.id}::lab::${project.id}`;
+      const steps = [];
+      const entry = {
+        key,
+        kind: "project",
+        courseId: course.id,
+        title: project.title,
+        summary: project.summary,
+        difficulty: project.difficulty,
+        minutes: project.minutes,
+        brief: project.brief,
+        stages: project.stages.map((stage) => ({ id: stage.id, title: stage.title, count: stage.steps.length })),
+        steps,
+        items: [],
+        prerequisites: []
+      };
+      project.stages.forEach((stage) => {
+        stage.steps.forEach((step) => {
+          steps.push({ ...step, stageId: stage.id, stageTitle: stage.title });
+          if (GRADABLE_TYPES.has(step.type)) {
+            const itemKey = `${key}::${step.id}`;
+            items.set(itemKey, { key: itemKey, lessonKey: key, skillKey: key, courseId: course.id, step, index: steps.length - 1, kind: "project", stageId: stage.id });
+            entry.items.push(itemKey);
+          }
+        });
+      });
+      lessons.set(key, entry);
+      projects.set(key, entry);
+      course.projectKeys.push(key);
+    }
+  }
+
+  return { courses, lessons, units, items, projects, errors };
 }

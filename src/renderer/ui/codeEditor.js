@@ -3,7 +3,11 @@
 // classic <script> tags in index.html, so this module has no CM import — if CM
 // failed to load, the plain textarea still works.
 
-import { getEditorLang, setEditorLang } from "../state/store.js";
+// Chosen syntax language per editor, remembered for the session so a picked
+// mode survives repaints. Highlighting only.
+const editorLangs = new Map();
+const getEditorLang = (scopeId, questionId, fallback) => editorLangs.get(`${scopeId}:${questionId}`) ?? fallback;
+const setEditorLang = (scopeId, questionId, language) => editorLangs.set(`${scopeId}:${questionId}`, language);
 
 // Languages offered in the selector, mapped to the CM5 MIME each vendored mode
 // registers. The clike mode covers Java/C/C++/C#. Highlighting only — the
