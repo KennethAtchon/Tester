@@ -1,7 +1,7 @@
 {
   "name": "test-form-maker",
   "version": "0.1.0",
-  "description": "Desktop app for taking JSON-defined tests and exporting answers as Markdown for AI review.",
+  "description": "Desktop learning studio: spaced, effortful retrieval practice over JSON question banks, plus Markdown export for AI review.",
   "main": "src/main.js",
   "scripts": {
     "start": "env -u ELECTRON_RUN_AS_NODE electron ."

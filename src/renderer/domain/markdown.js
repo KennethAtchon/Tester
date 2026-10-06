@@ -8,7 +8,9 @@ import { stringify, isAnswered, codeAnswerKey } from "../lib/util.js";
 // alone and must not deduct for "missing" prose justification.
 const SELECTION_ONLY_TYPES = new Set(["multiple_choice", "single_choice", "true_false"]);
 
-export function buildMarkdown({ library, test, answers, sourcePath, runResults }) {
+const CONFIDENCE_LABELS = { 1: "Guess (~25%)", 2: "Unsure (~50%)", 3: "Likely (~75%)", 4: "Certain (~95%)" };
+
+export function buildMarkdown({ library, test, answers, sourcePath, runResults, confidence = {} }) {
   const answeredCount = test.questions.filter((question) => isQuestionAnswered(question, answers)).length;
   const now = new Date().toLocaleString();
 
@@ -18,6 +20,7 @@ export function buildMarkdown({ library, test, answers, sourcePath, runResults }
     "## Review Request",
     "",
     "Please grade these answers, explain what is correct or incorrect, and create a results Markdown file with suggested improvements.",
+    "Where a self-rated confidence is given, also comment on calibration: flag confident wrong answers (these are the most valuable to correct) and correct answers given with low confidence.",
     "",
     "## Test Metadata",
     "",
@@ -57,6 +60,10 @@ export function buildMarkdown({ library, test, answers, sourcePath, runResults }
       appendCodeBlock(lines, "Submitted code", question.language, answers[codeAnswerKey(question.id)]);
     } else {
       lines.push("**Answer:**", "", formatAnswer(answers[question.id]), "");
+    }
+
+    if (confidence[question.id]) {
+      lines.push(`**Self-rated confidence:** ${CONFIDENCE_LABELS[confidence[question.id]]}`, "");
     }
   });
 

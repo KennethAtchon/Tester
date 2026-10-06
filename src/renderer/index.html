@@ -3,33 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Test Form Maker</title>
+    <title>Recall</title>
     <script>
-      const savedTheme = localStorage.getItem("test-form-maker-theme");
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      document.documentElement.dataset.theme = savedTheme || (prefersDark ? "dark" : "light");
-    </script>
-    <!-- CodeMirror core CSS first, so the active design stylesheet's
-         .CodeMirror .cm-* syntax rules override CM's built-in cm-s-default. -->
-    <link rel="stylesheet" href="./vendor/codemirror/codemirror.css" />
-    <link rel="stylesheet" href="./vendor/codemirror/show-hint.css" />
-    <link id="design-theme-link" rel="stylesheet" href="./styles/styles.css" />
-    <script>
+      // Apply the saved theme before first paint to avoid a flash.
       (function () {
-        const designs = {
-          classic: "./styles/styles.css",
-          terminal: "./styles/themes/terminal.css",
-          luxury: "./styles/themes/luxury.css",
-          brutalist: "./styles/themes/brutalist.css",
-          glass: "./styles/themes/glass.css",
-          zen: "./styles/themes/zen.css"
-        };
-        const saved = localStorage.getItem("test-form-maker-design") || "classic";
-        const link = document.getElementById("design-theme-link");
-        if (link && designs[saved]) link.href = designs[saved];
+        var preference = "system";
+        try {
+          preference = localStorage.getItem("recall-theme") || "system";
+        } catch (error) {}
+        var dark = preference === "dark" || (preference === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.dataset.theme = dark ? "dark" : "light";
       })();
     </script>
-    <link rel="stylesheet" href="./styles/switcher.css" />
+    <!-- CodeMirror core CSS first, so app.css's .CodeMirror .cm-* rules override
+         CM's built-in cm-s-default theme. -->
+    <link rel="stylesheet" href="./vendor/codemirror/codemirror.css" />
+    <link rel="stylesheet" href="./vendor/codemirror/show-hint.css" />
+    <link rel="stylesheet" href="./styles/app.css" />
     <!-- CodeMirror 5 JS (vendored, no build step) — exposes window.CodeMirror for ui/codeEditor.js -->
     <script src="./vendor/codemirror/codemirror.js"></script>
     <script src="./vendor/codemirror/show-hint.js"></script>
@@ -49,210 +39,11 @@
     <script src="./vendor/codemirror/yaml.js"></script>
   </head>
   <body>
-    <main class="app-shell">
-      <section class="sidebar" aria-label="Test library">
-        <div class="brand-block">
-          <div class="brand-mark" aria-hidden="true">T</div>
-          <div>
-            <h1>Test Form Maker</h1>
-            <p id="librarySummary">Load a JSON file to begin.</p>
-          </div>
-        </div>
-
-        <button id="themeToggleButton" type="button" class="theme-toggle" aria-pressed="false">
-          <span class="theme-icon" aria-hidden="true">
-            <svg class="sun-icon" viewBox="0 0 24 24">
-              <path d="M12 5a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10Zm0-6h-2v3h2V1Zm0 19h-2v3h2v-3ZM4.22 2.81 2.81 4.22l2.12 2.12 1.41-1.41-2.12-2.12Zm14.85 14.85-1.41 1.41 2.12 2.12 1.41-1.41-2.12-2.12ZM1 10v2h3v-2H1Zm19 0v2h3v-2h-3ZM4.93 17.66l-2.12 2.12 1.41 1.41 2.12-2.12-1.41-1.41ZM19.78 2.81l-2.12 2.12 1.41 1.41 2.12-2.12-1.41-1.41Z" />
-            </svg>
-            <svg class="moon-icon" viewBox="0 0 24 24">
-              <path d="M20.9 15.54A8.5 8.5 0 0 1 8.46 3.1 9.5 9.5 0 1 0 20.9 15.54Z" />
-            </svg>
-          </span>
-          <span id="themeToggleLabel">Light mode</span>
-        </button>
-
-        <div class="file-actions">
-          <button id="loadJsonButton" type="button">
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M3 6.5A2.5 2.5 0 0 1 5.5 4H10l2 2h6.5A2.5 2.5 0 0 1 21 8.5v8A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-10Z" />
-            </svg>
-            Load JSON
-          </button>
-          <button id="loadSampleButton" type="button" class="secondary">
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M8 5.5v13l10-6.5-10-6.5Z" />
-            </svg>
-            Use Sample
-          </button>
-        </div>
-
-        <div class="example-library" aria-label="Example JSON files">
-          <div class="section-label">Examples</div>
-          <div id="exampleList" class="example-list" aria-live="polite"></div>
-        </div>
-
-        <div id="testList" class="test-list" aria-live="polite"></div>
-      </section>
-
-      <section class="workspace" aria-label="Test workspace">
-        <header class="workspace-header">
-          <div>
-            <p class="eyebrow" id="currentTopic">No test selected</p>
-            <h2 id="currentTitle">Choose a test</h2>
-          </div>
-          <div id="workspaceStats" class="workspace-stats" aria-live="polite"></div>
-          <div class="header-actions">
-            <button id="copyMarkdownButton" type="button" class="secondary" disabled>
-              <svg aria-hidden="true" viewBox="0 0 24 24">
-                <path d="M8 7a3 3 0 0 1 3-3h6a3 3 0 0 1 3 3v6a3 3 0 0 1-3 3h-1v1a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-6a3 3 0 0 1 3-3h1V7Zm3-1a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-6Zm-3 4H7a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-1h-3a3 3 0 0 1-3-3v-3Z" />
-              </svg>
-              Copy Markdown
-            </button>
-            <button id="saveMarkdownButton" type="button" disabled>
-              <svg aria-hidden="true" viewBox="0 0 24 24">
-                <path d="M11 4h2v8.2l3.1-3.1 1.4 1.4-5.5 5.5-5.5-5.5 1.4-1.4 3.1 3.1V4Zm-6 14h14v2H5v-2Z" />
-              </svg>
-              Save Markdown
-            </button>
-          </div>
-        </header>
-
-        <div id="statusMessage" class="status" role="status"></div>
-
-        <section id="emptyState" class="empty-state">
-          <h3>Load a test library</h3>
-          <p>Select a JSON file with one or more tests, answer the questions, then export a Markdown response for AI review.</p>
-        </section>
-
-        <form id="testForm" class="test-form" hidden></form>
-      </section>
-    </main>
-
-    <script type="module" src="./app.js"></script>
-
-    <!-- Design Switcher -->
-    <div id="designSwitcher" class="design-switcher">
-      <button id="designToggle" class="design-toggle" aria-expanded="false" aria-haspopup="true" title="Change design">
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <circle cx="12" cy="12" r="3" fill="currentColor"/>
-          <path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/>
-        </svg>
-        <span id="designToggleLabel">Design</span>
-      </button>
-      <div id="designPanel" class="design-panel" role="menu">
-        <div class="design-panel-label">Choose Design</div>
-        <button class="design-option" data-design="classic" role="menuitem">
-          <div class="design-swatch swatch-classic"></div>
-          <div>
-            <div class="design-option-name">Classic</div>
-            <div class="design-option-desc">Warm parchment</div>
-          </div>
-        </button>
-        <button class="design-option" data-design="terminal" role="menuitem">
-          <div class="design-swatch swatch-terminal"></div>
-          <div>
-            <div class="design-option-name">Terminal</div>
-            <div class="design-option-desc">CRT phosphor green</div>
-          </div>
-        </button>
-        <button class="design-option" data-design="luxury" role="menuitem">
-          <div class="design-swatch swatch-luxury"></div>
-          <div>
-            <div class="design-option-name">Luxury</div>
-            <div class="design-option-desc">Dark haute couture</div>
-          </div>
-        </button>
-        <button class="design-option" data-design="brutalist" role="menuitem">
-          <div class="design-swatch swatch-brutalist"></div>
-          <div>
-            <div class="design-option-name">Brutalist</div>
-            <div class="design-option-desc">Raw & confrontational</div>
-          </div>
-        </button>
-        <button class="design-option" data-design="glass" role="menuitem">
-          <div class="design-swatch swatch-glass"></div>
-          <div>
-            <div class="design-option-name">Glass</div>
-            <div class="design-option-desc">Deep space aura</div>
-          </div>
-        </button>
-        <button class="design-option" data-design="zen" role="menuitem">
-          <div class="design-swatch swatch-zen"></div>
-          <div>
-            <div class="design-option-name">Zen</div>
-            <div class="design-option-desc">Japanese minimalism</div>
-          </div>
-        </button>
-      </div>
+    <div class="shell">
+      <aside class="rail" id="rail" aria-label="Navigation"></aside>
+      <main class="main" id="main" tabindex="-1"></main>
     </div>
-
-    <script>
-      (function () {
-        const designs = {
-          classic: "./styles/styles.css",
-          terminal: "./styles/themes/terminal.css",
-          luxury: "./styles/themes/luxury.css",
-          brutalist: "./styles/themes/brutalist.css",
-          glass: "./styles/themes/glass.css",
-          zen: "./styles/themes/zen.css"
-        };
-
-        const themeLink = document.getElementById("design-theme-link");
-        const toggle = document.getElementById("designToggle");
-        const panel = document.getElementById("designPanel");
-        const label = document.getElementById("designToggleLabel");
-        const options = document.querySelectorAll(".design-option");
-
-        let current = localStorage.getItem("test-form-maker-design") || "classic";
-        let open = false;
-
-        function applyDesign(name) {
-          if (!designs[name]) return;
-          themeLink.href = designs[name];
-          current = name;
-          localStorage.setItem("test-form-maker-design", name);
-          const names = { classic: "Classic", terminal: "Terminal", luxury: "Luxury", brutalist: "Brutalist", glass: "Glass", zen: "Zen" };
-          label.textContent = names[name] || "Design";
-          options.forEach(function (opt) {
-            opt.classList.toggle("active", opt.dataset.design === name);
-          });
-        }
-
-        toggle.addEventListener("click", function (e) {
-          e.stopPropagation();
-          open = !open;
-          panel.classList.toggle("open", open);
-          toggle.setAttribute("aria-expanded", String(open));
-        });
-
-        options.forEach(function (opt) {
-          opt.addEventListener("click", function () {
-            applyDesign(opt.dataset.design);
-            open = false;
-            panel.classList.remove("open");
-            toggle.setAttribute("aria-expanded", "false");
-          });
-        });
-
-        document.addEventListener("click", function (e) {
-          if (!e.target.closest("#designSwitcher")) {
-            open = false;
-            panel.classList.remove("open");
-            toggle.setAttribute("aria-expanded", "false");
-          }
-        });
-
-        document.addEventListener("keydown", function (e) {
-          if (e.key === "Escape" && open) {
-            open = false;
-            panel.classList.remove("open");
-            toggle.setAttribute("aria-expanded", "false");
-            toggle.focus();
-          }
-        });
-
-        applyDesign(current);
-      })();
-    </script>
+    <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+    <script type="module" src="./app.js"></script>
   </body>
 </html>

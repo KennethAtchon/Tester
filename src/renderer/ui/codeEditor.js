@@ -95,7 +95,9 @@ function makeHint(getLang) {
 // Mounts CM5 on every textarea tagged with data-code-editor inside root. Must
 // run AFTER the textareas are attached to the document — CM needs layout to
 // build its editor. Safe to call repeatedly; mounted editors are skipped.
-export function mountCodeEditors(root, test) {
+// scopeId namespaces the remembered language choice (a test id in the mock
+// exam, an item key in practice).
+export function mountCodeEditors(root, scopeId) {
   if (!window.CodeMirror) {
     return; // graceful fallback: textarea stays fully usable
   }
@@ -109,7 +111,7 @@ export function mountCodeEditors(root, test) {
     const questionId = textarea.dataset.questionId;
     const defaultLang = textarea.dataset.codeEditor;
     // Mutable so the selector can repoint autocomplete to a new keyword pool.
-    let lang = getEditorLang(test.id, questionId, defaultLang);
+    let lang = getEditorLang(scopeId, questionId, defaultLang);
     const hint = makeHint(() => lang);
 
     const editor = window.CodeMirror.fromTextArea(textarea, {
@@ -146,7 +148,7 @@ export function mountCodeEditors(root, test) {
 
     const selector = buildSelector(lang, (next) => {
       lang = next; // repoints autocomplete's keyword pool
-      setEditorLang(test.id, questionId, next);
+      setEditorLang(scopeId, questionId, next);
       editor.setOption("mode", MIME_BY_VALUE.get(next) || "text/plain");
     });
 

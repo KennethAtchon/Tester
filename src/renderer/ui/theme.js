@@ -1,38 +1,41 @@
-// Light/dark theme persistence and DOM application.
+// Light/dark theme. The preference (system | light | dark) lives in learner
+// settings and is mirrored to localStorage so index.html can apply it before
+// first paint without a flash.
 
-const STORAGE_KEY = "test-form-maker-theme";
+import { settings, persist } from "../state/progress.js";
 
-const elements = {
-  toggleButton: document.querySelector("#themeToggleButton"),
-  toggleLabel: document.querySelector("#themeToggleLabel")
-};
-
-let theme = getInitialTheme();
+const STORAGE_KEY = "recall-theme";
+const media = window.matchMedia("(prefers-color-scheme: dark)");
+const ORDER = ["system", "light", "dark"];
 
 export function initTheme() {
-  elements.toggleButton.addEventListener("click", toggleTheme);
-  renderTheme();
+  applyTheme();
+  media.addEventListener("change", applyTheme);
 }
 
-function toggleTheme() {
-  theme = theme === "dark" ? "light" : "dark";
-  localStorage.setItem(STORAGE_KEY, theme);
-  renderTheme();
+export function themePreference() {
+  return settings().theme || "system";
 }
 
-function renderTheme() {
-  document.documentElement.dataset.theme = theme;
-  elements.toggleButton.setAttribute("aria-pressed", String(theme === "dark"));
-  elements.toggleButton.setAttribute("aria-label", `Switch to ${theme === "dark" ? "light" : "dark"} mode`);
-  elements.toggleLabel.textContent = theme === "dark" ? "Dark mode" : "Light mode";
-}
-
-function getInitialTheme() {
-  const saved = localStorage.getItem(STORAGE_KEY);
-
-  if (saved === "light" || saved === "dark") {
-    return saved;
+export function setThemePreference(preference) {
+  settings().theme = ORDER.includes(preference) ? preference : "system";
+  try {
+    localStorage.setItem(STORAGE_KEY, settings().theme);
+  } catch {
+    // Pre-paint falls back to the system theme.
   }
+  persist();
+  applyTheme();
+}
 
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+export function cycleTheme() {
+  const next = ORDER[(ORDER.indexOf(themePreference()) + 1) % ORDER.length];
+  setThemePreference(next);
+  return next;
+}
+
+function applyTheme() {
+  const preference = themePreference();
+  const dark = preference === "dark" || (preference === "system" && media.matches);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
 }

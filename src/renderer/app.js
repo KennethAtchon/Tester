@@ -1,40 +1,48 @@
-// Entry point: wires DOM controls to the IO + UI + store modules. All behaviour
-// lives in the focused modules below; this file is just composition.
+// Entry point: loads the learner's saved progress, applies the theme, rolls
+// the streak forward, then hands the window to the router. All behaviour lives
+// in the focused modules below; this file is just composition.
 
-import { selectTest } from "./state/store.js";
+import { initProgress, onProgressChange } from "./state/progress.js";
+import { rollStreak } from "./state/learner.js";
 import { initTheme } from "./ui/theme.js";
-import { setStatus } from "./state/status.js";
-import { initUI, render } from "./ui/view.js";
-import {
-  loadJsonFromDisk,
-  loadSampleJson,
-  loadExampleJson,
-  loadExamples,
-  copyMarkdown,
-  saveMarkdown
-} from "./io/io.js";
+import { renderRail } from "./ui/rail.js";
+import { registerViews, startRouter } from "./ui/router.js";
+import { toast } from "./ui/toast.js";
+import { renderToday } from "./ui/views/today.js";
+import { renderMap, renderSkill } from "./ui/views/map.js";
+import { renderSession } from "./ui/views/session.js";
+import { renderMistakes } from "./ui/views/mistakes.js";
+import { renderInsights } from "./ui/views/insights.js";
+import { renderExam } from "./ui/views/exam.js";
+import { renderSettings } from "./ui/views/settings.js";
 
-const buttons = {
-  loadJson: document.querySelector("#loadJsonButton"),
-  loadSample: document.querySelector("#loadSampleButton"),
-  copyMarkdown: document.querySelector("#copyMarkdownButton"),
-  saveMarkdown: document.querySelector("#saveMarkdownButton")
-};
-
-buttons.loadJson.addEventListener("click", loadJsonFromDisk);
-buttons.loadSample.addEventListener("click", loadSampleJson);
-buttons.copyMarkdown.addEventListener("click", copyMarkdown);
-buttons.saveMarkdown.addEventListener("click", saveMarkdown);
-
+await initProgress();
 initTheme();
-initUI({
-  onSelectTest: (testId) => {
-    selectTest(testId);
-    render();
-    setStatus("");
+
+const streak = rollStreak();
+if (streak.usedFreezes > 0) {
+  toast(`A streak freeze covered ${streak.usedFreezes === 1 ? "a missed day" : `${streak.usedFreezes} missed days`}. Your streak is intact.`, { timeout: 6000 });
+}
+
+registerViews(
+  {
+    today: renderToday,
+    map: renderMap,
+    skill: renderSkill,
+    session: renderSession,
+    mistakes: renderMistakes,
+    insights: renderInsights,
+    exam: renderExam,
+    settings: renderSettings
   },
-  onLoadExample: loadExampleJson
+  { onRender: renderRail }
+);
+
+// Keep the rail's counts and streak live as attempts are recorded.
+let railFrame = 0;
+onProgressChange(() => {
+  cancelAnimationFrame(railFrame);
+  railFrame = requestAnimationFrame(renderRail);
 });
 
-loadExamples();
-render();
+startRouter();

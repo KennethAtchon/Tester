@@ -1,0 +1,68 @@
+// Inline stroke icons (24×24, currentColor). Kept as path data so they theme
+// with text color and need no asset files.
+
+import { s } from "../lib/dom.js";
+
+const PATHS = {
+  today: ["M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z", "M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"],
+  map: ["M6 3.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM18 3.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM12 15.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z", "M8.5 6h7M7.2 8.2l3.6 7.6M16.8 8.2l-3.6 7.6"],
+  notebook: ["M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6z", "M6 3v18M10 8h5M10 12h5"],
+  insights: ["M3 20h18", "M6 16v-4M11 16V6M16 16v-7"],
+  exam: ["M7 3h7l5 5v12a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z", "M14 3v5h5M9 13h6M9 17h6"],
+  settings: ["M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12", "M16 4a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM10 10a2 2 0 1 0 0 4 2 2 0 0 0 0-4zM18 16a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"],
+  play: ["M7 4.5v15l12-7.5z"],
+  flame: ["M12 3c.5 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2.2 1-3.6 2.2-4.6.2 1.6 1 2.6 2 3 0-3 .3-5.6.8-8.4z"],
+  snow: ["M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9", "M9.5 4.5 12 7l2.5-2.5M9.5 19.5 12 17l2.5 2.5"],
+  check: ["m5 12.5 4.5 4.5L19 7.5"],
+  x: ["M6 6l12 12M18 6 6 18"],
+  bulb: ["M9 18h6M10 21h4", "M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"],
+  arrowRight: ["M5 12h14M13 6l6 6-6 6"],
+  arrowLeft: ["M19 12H5M11 6l-6 6 6 6"],
+  folder: ["M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"],
+  plus: ["M12 5v14M5 12h14"],
+  trash: ["M4 7h16M10 11v6M14 11v6", "M6 7l1 13h10l1-13M9 7V4h6v3"],
+  lock: ["M7 11h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2z", "M8 11V8a4 4 0 0 1 8 0v3"],
+  target: ["M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z", "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"],
+  star: ["M12 3l2.2 5.6L20 9.5l-4.5 3.8L17 19l-5-3-5 3 1.5-5.7L4 9.5l5.8-.9z"],
+  clock: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z", "M12 7v5l3 2"],
+  moon: ["M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"],
+  monitor: ["M5 4h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z", "M8 20h8M12 16v4"],
+  copy: ["M10 8h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z", "M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"],
+  download: ["M12 4v11M7 10l5 5 5-5M5 20h14"],
+  layers: ["m12 3 9 5-9 5-9-5z", "m3 13 9 5 9-5"],
+  trophy: ["M8 4h8v5a4 4 0 0 1-8 0z", "M8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8 21h8M9 17h6"],
+  compass: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z", "m15.5 8.5-2 5-5 2 2-5z"],
+  zap: ["M13 3 5 13h6l-1 8 8-10h-6z"],
+  eye: ["M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z", "M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"],
+  retry: ["M20 11a8 8 0 1 0-2.3 5.7", "M20 4v7h-7"],
+  alert: ["M12 3 2 20h20z", "M12 10v4M12 17v.5"],
+  sparkle: ["M11 3.5l1.9 5.6 5.6 1.9-5.6 1.9L11 18.5l-1.9-5.6L3.5 11l5.6-1.9z", "M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"],
+  chevronDown: ["m6 9 6 6 6-6"],
+  pencil: ["M4 20h4L19 9l-4-4L4 16z", "M13 7l4 4"],
+  book: ["M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5z", "M5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3"],
+  brand: ["M4 18c2-7 3.4-10 5-10v10c2-6 3.4-8 5-8v8c2-4.5 3.6-6 6-6"]
+};
+
+const FILLED = new Set(["play"]);
+
+export function icon(name, { size = 18, className = "" } = {}) {
+  const paths = PATHS[name] || [];
+  const filled = FILLED.has(name);
+  return s(
+    "svg",
+    {
+      class: `icon ${className}`.trim(),
+      width: size,
+      height: size,
+      viewBox: "0 0 24 24",
+      fill: filled ? "currentColor" : "none",
+      stroke: filled ? "none" : "currentColor",
+      "stroke-width": 1.8,
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+      "aria-hidden": "true",
+      focusable: "false"
+    },
+    paths.map((d) => s("path", { d }))
+  );
+}
