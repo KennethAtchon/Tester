@@ -1,10 +1,9 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("testFiles", {
-  openJson: () => ipcRenderer.invoke("tests:open"),
-  openSample: () => ipcRenderer.invoke("tests:sample"),
-  listExamples: () => ipcRenderer.invoke("tests:listExamples"),
-  openExample: (fileName) => ipcRenderer.invoke("tests:example", fileName),
+  listBuiltinCourses: () => ipcRenderer.invoke("courses:builtin"),
+  openCourseFile: () => ipcRenderer.invoke("courses:open"),
+  openCoursesFolder: () => ipcRenderer.invoke("courses:folder"),
   saveMarkdown: (payload) => ipcRenderer.invoke("tests:saveMarkdown", payload),
   runCode: (payload) => ipcRenderer.invoke("code:run", payload),
   execCode: (payload) => ipcRenderer.invoke("code:exec", payload),

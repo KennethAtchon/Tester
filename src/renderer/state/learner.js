@@ -1,51 +1,34 @@
-// The learner model: per-item memory (FSRS), per-skill mastery, the review log,
-// the mistake notebook, rewards, badges, and the daily-goal streak. Every
-// attempt flows through recordAttempt, which updates all of them at once and
-// reports what changed so the session can explain it.
+// The learner model: per-item memory (FSRS), mastery per lesson, lesson
+// completion and unlocks, the review log, the mistake notebook, XP and levels,
+// badges, game records, and the daily-goal streak. Every answer flows through
+// recordAttempt; finishing a lesson, game, or project goes through the
+// matching complete*/record* function. Each returns what changed so the
+// player can explain it.
 
 import { progress, settings, persist } from "./progress.js";
-import { catalog, getItem, getSkill } from "./catalog.js";
+import { catalog, getItem, getLesson, getUnit, getCourse } from "./catalog.js";
 import { newMemory, review, retrievability } from "../domain/fsrs.js";
-import { resolveKey } from "../domain/grading.js";
-import { xpForAttempt, BADGES } from "../domain/rewards.js";
+import { xpForAttempt, BADGES, levelFor, starsFor } from "../domain/rewards.js";
 import { calibration } from "../domain/insights.js";
+import { questEvent } from "./quests.js";
 import { DAY_MS, dayKey, addDays, daysBetween, endOfStudyDay } from "../lib/time.js";
 
 export const MASTERY_THRESHOLD = 0.8;
-export const UNLOCK_THRESHOLD = 0.6;
-const LONG_FORM_TYPES = new Set(["long_answer", "code_run"]);
+const REVIEW_TYPES = new Set(["choice", "sort", "order", "match", "estimate", "fill", "text"]);
 
 export function memoryOf(itemKey) {
   return progress().items[itemKey] || newMemory();
 }
 
-export function keyFor(item) {
-  return resolveKey(item.question, progress().keys[item.key] ?? null);
-}
-
-export function setKeyOverride(itemKey, value) {
-  progress().keys[itemKey] = value;
-  persist();
-}
-
-export function isEligible(item) {
-  return settings().includeLongForm || !LONG_FORM_TYPES.has(item.question.type);
-}
-
-// Worked → faded → independent. 0 = first look (attempt, then study the
-// answer), 1 = faded (fill in the blanks), 2 = independent recall. A skill the
-// learner tested out of starts at 2 (expertise reversal).
-export function scaffoldFor(itemKey) {
-  const memory = progress().items[itemKey];
-  if (memory?.scaffold != null) {
-    return memory.scaffold;
+export function isReviewable(item) {
+  if (!item || item.kind !== "lesson" || !REVIEW_TYPES.has(item.step.type)) {
+    return false;
   }
-  const item = getItem(itemKey);
-  return item && progress().skills[item.skillKey]?.testedOut ? 2 : 0;
+  return item.step.type !== "text" || settings().includeLongForm;
 }
 
-// Estimated chance of recalling the item now: memory strength if the last
-// attempt succeeded, zero if it has never been recalled or was last missed.
+// Chance of recalling the item now: memory strength if the last attempt
+// succeeded, zero if never recalled or last missed.
 export function itemKnowledge(itemKey, now = Date.now()) {
   const memory = progress().items[itemKey];
   if (!memory || memory.state === "new" || !memory.lastCorrect) {
@@ -54,101 +37,98 @@ export function itemKnowledge(itemKey, now = Date.now()) {
   return retrievability(memory, now);
 }
 
-export function masteryOf(skillKey, now = Date.now()) {
-  const skill = getSkill(skillKey);
-  if (!skill || skill.items.length === 0) {
+export function masteryOf(lessonKey, now = Date.now()) {
+  const lesson = getLesson(lessonKey);
+  if (!lesson || lesson.items.length === 0) {
     return 0;
   }
-  return skill.items.reduce((sum, itemKey) => sum + itemKnowledge(itemKey, now), 0) / skill.items.length;
+  return lesson.items.reduce((sum, itemKey) => sum + itemKnowledge(itemKey, now), 0) / lesson.items.length;
 }
 
-export function isSkillUnlocked(skillKey, now = Date.now()) {
-  const skill = getSkill(skillKey);
-  if (!skill || skill.prerequisites.length === 0) {
+// ── lessons, units, courses ─────────────────────────────────────────────────
+
+export function lessonRecord(lessonKey) {
+  return progress().lessons[lessonKey] || null;
+}
+
+export function isLessonComplete(lessonKey) {
+  return Boolean(progress().lessons[lessonKey]?.completedAt);
+}
+
+// A lesson opens when the one before it (in course order) is done, when the
+// learner skipped ahead to it, or when it's the first in the course.
+export function isLessonUnlocked(lessonKey) {
+  const lesson = getLesson(lessonKey);
+  if (!lesson || lesson.kind === "project") {
+    return Boolean(lesson);
+  }
+  if (lesson.order === 0 || progress().unlocked[lessonKey] || isLessonComplete(lessonKey)) {
     return true;
   }
-  if (progress().libraries[skill.libKey]?.unlocked?.includes(skillKey)) {
-    return true;
-  }
-  return skill.prerequisites.every((prerequisite) => masteryOf(prerequisite, now) >= UNLOCK_THRESHOLD);
+  const course = getCourse(lesson.courseId);
+  return isLessonComplete(course.lessonKeys[lesson.order - 1]);
 }
 
-export function unlockSkill(skillKey) {
-  const skill = getSkill(skillKey);
-  const record = skill && progress().libraries[skill.libKey];
-  if (record && !record.unlocked.includes(skillKey)) {
-    record.unlocked.push(skillKey);
-    persist();
-  }
+export function unlockLesson(lessonKey) {
+  progress().unlocked[lessonKey] ||= true;
+  persist();
 }
 
-export function skillStats(skillKey, now = Date.now()) {
-  const skill = getSkill(skillKey);
-  const horizon = endOfStudyDay(now);
-  let seen = 0;
-  let due = 0;
-  let strength = 0;
-  for (const itemKey of skill.items) {
-    const memory = progress().items[itemKey];
-    if (memory && memory.state !== "new") {
-      seen += 1;
-      strength += retrievability(memory, now);
-      if (memory.dueAt != null && memory.dueAt <= horizon) {
-        due += 1;
-      }
-    }
+// Placement: a unit the learner tested out of stays open for review, and the
+// path moves on to the lesson after it.
+export function placeOutOf(unitKey) {
+  const unit = getUnit(unitKey);
+  const unlocked = progress().unlocked;
+  for (const lessonKey of unit.lessons) {
+    unlocked[lessonKey] = "placed";
   }
-  const mastery = masteryOf(skillKey, now);
-  return {
-    mastery,
-    seen,
-    total: skill.items.length,
-    due,
-    newCount: skill.items.length - seen,
-    strength: seen ? strength / seen : 0,
-    mastered: mastery >= MASTERY_THRESHOLD,
-    unlocked: isSkillUnlocked(skillKey, now),
-    lastPracticed: progress().skills[skillKey]?.lastPracticed ?? null,
-    testedOut: Boolean(progress().skills[skillKey]?.testedOut)
-  };
+  const course = getCourse(getLesson(unit.lessons.at(-1)).courseId);
+  const after = course.lessonKeys[course.lessonKeys.indexOf(unit.lessons.at(-1)) + 1];
+  if (after) {
+    unlocked[after] ||= true;
+  }
+  persist();
 }
 
-export function libraryStats(libKey, now = Date.now()) {
-  const library = catalog().libraries.find((entry) => entry.key === libKey);
-  let total = 0;
-  let seen = 0;
-  let due = 0;
-  let knowledge = 0;
-  let minMastery = 1;
-  for (const skill of library.skills) {
-    const stats = skillStats(skill.key, now);
-    total += stats.total;
-    seen += stats.seen;
-    due += stats.due;
-    knowledge += stats.mastery * stats.total;
-    minMastery = Math.min(minMastery, stats.mastery);
-  }
-  return {
-    total,
-    seen,
-    due,
-    mastery: total ? knowledge / total : 0,
-    minMastery: library.skills.length ? minMastery : 0,
-    capstoneReady: library.skills.length > 0 && minMastery >= UNLOCK_THRESHOLD,
-    capstoneBest: progress().libraries[libKey]?.capstoneBest ?? null
-  };
+export function isPlacedOut(lessonKey) {
+  return progress().unlocked[lessonKey] === "placed" && !isLessonComplete(lessonKey);
 }
 
-// Items due by the end of today's study day, most-forgotten first.
-export function dueItemKeys(now = Date.now(), filter = null) {
+export function nextLessonKey(courseId) {
+  const course = getCourse(courseId);
+  if (!course) {
+    return null;
+  }
+  const open = (key) => !isLessonComplete(key) && isLessonUnlocked(key);
+  return course.lessonKeys.find((key) => open(key) && !isPlacedOut(key)) ?? course.lessonKeys.find(open) ?? course.lessonKeys.find((key) => !isLessonComplete(key)) ?? null;
+}
+
+export function unitStats(unitKey) {
+  const unit = getUnit(unitKey);
+  const done = unit.lessons.filter(isLessonComplete).length;
+  const mastery = unit.lessons.reduce((sum, key) => sum + masteryOf(key), 0) / Math.max(1, unit.lessons.length);
+  const boss = progress().games[`boss:${unitKey}`];
+  return { done, total: unit.lessons.length, mastery, complete: done === unit.lessons.length, bossBeaten: Boolean(boss?.won), bossBest: boss?.best ?? null };
+}
+
+export function courseStats(courseId) {
+  const course = getCourse(courseId);
+  const done = course.lessonKeys.filter(isLessonComplete).length;
+  const labs = course.projectKeys.filter((key) => progress().lessons[key]?.best != null).length;
+  return { done, total: course.lessonKeys.length, labs, labsTotal: course.projectKeys.length, progress: course.lessonKeys.length ? done / course.lessonKeys.length : 0 };
+}
+
+// ── reviews ─────────────────────────────────────────────────────────────────
+
+export function dueItemKeys(now = Date.now()) {
   const horizon = endOfStudyDay(now);
   const due = [];
   for (const item of catalog().items.values()) {
-    if (filter && !filter(item)) {
+    if (!isReviewable(item)) {
       continue;
     }
     const memory = progress().items[item.key];
-    if (memory && memory.state !== "new" && memory.dueAt != null && memory.dueAt <= horizon && isEligible(item)) {
+    if (memory && memory.state !== "new" && memory.dueAt != null && memory.dueAt <= horizon) {
       due.push({ key: item.key, recall: retrievability(memory, now) });
     }
   }
@@ -156,24 +136,12 @@ export function dueItemKeys(now = Date.now(), filter = null) {
   return due.map((entry) => entry.key);
 }
 
-// Unseen items in unlocked skills, in library/skill/question order.
-export function newItemKeys(now = Date.now(), filter = null) {
+export function seenItemKeys(filter = () => true) {
   const keys = [];
-  for (const library of catalog().libraries) {
-    for (const skill of library.skills) {
-      if (!isSkillUnlocked(skill.key, now)) {
-        continue;
-      }
-      for (const itemKey of skill.items) {
-        const item = getItem(itemKey);
-        if (filter && !filter(item)) {
-          continue;
-        }
-        const memory = progress().items[itemKey];
-        if ((!memory || memory.state === "new") && isEligible(item)) {
-          keys.push(itemKey);
-        }
-      }
+  for (const item of catalog().items.values()) {
+    const memory = progress().items[item.key];
+    if (memory && memory.state !== "new" && filter(item)) {
+      keys.push(item.key);
     }
   }
   return keys;
@@ -182,56 +150,50 @@ export function newItemKeys(now = Date.now(), filter = null) {
 export function todayCounts(now = Date.now()) {
   const today = dayKey(now);
   const log = progress().log;
-  let attempts = 0;
-  let newToday = 0;
   let reviewsToday = 0;
   for (let index = log.length - 1; index >= 0 && dayKey(log[index].ts) === today; index -= 1) {
-    attempts += 1;
-    if (log[index].first) {
-      newToday += 1;
-    } else {
+    if (log[index].mode === "review") {
       reviewsToday += 1;
     }
   }
-  return { attempts, newToday, reviewsToday };
+  return { reviewsToday };
 }
 
 export function todayStats(now = Date.now()) {
   const data = progress();
-  const counts = todayCounts(now);
-  const goal = settings().dailyGoal;
-  const done = data.streak.history[dayKey(now)] || 0;
+  const goal = settings().dailyXp;
+  const xpToday = data.streak.history[dayKey(now)] || 0;
   const lastTs = data.log.length ? data.log[data.log.length - 1].ts : null;
   return {
     goal,
-    done,
-    goalMet: done >= goal,
+    xpToday,
+    goalMet: xpToday >= goal,
     due: dueItemKeys(now).length,
-    reviewCapLeft: Math.max(0, settings().maxReviewsPerDay - counts.reviewsToday),
-    newLeft: Math.max(0, Math.min(settings().newPerDay - counts.newToday, newItemKeys(now).length)),
-    newTotal: newItemKeys(now).length,
     streak: data.streak.current,
     best: data.streak.best,
     freezes: data.streak.freezes,
-    lapsedDays: lastTs ? daysBetween(dayKey(lastTs), dayKey(now)) : null,
-    hasHistory: data.log.length > 0
+    lapsedDays: lastTs ? daysBetween(dayKey(lastTs), dayKey(now)) : null
   };
 }
 
-// Records one graded attempt and updates every downstream model.
+// ── answers ─────────────────────────────────────────────────────────────────
+
+// mode: lesson | review | relearn | project | lightning | arcade | estimation | boss | placement
 export function recordAttempt({
   itemKey,
   grade,
   correct,
+  score = null,
   confidence = null,
   hints = 0,
   latencyMs = 0,
   response = "",
   chosen = null,
-  mode = "review",
+  mode = "lesson",
   explain = null,
   revealed = false,
   retry = false,
+  awardXp = true,
   sessionId = null,
   now = Date.now()
 }) {
@@ -244,27 +206,26 @@ export function recordAttempt({
   const before = memoryOf(itemKey);
   const isNew = before.state === "new";
   const gapDays = before.lastReview ? (now - before.lastReview) / DAY_MS : null;
-  const masteryBefore = masteryOf(item.skillKey, now);
-  const scaffoldBefore = scaffoldFor(itemKey);
+  const masteryBefore = masteryOf(item.lessonKey, now);
 
-  const memory = {
+  data.items[itemKey] = {
     ...before,
     ...review(before, grade, now, settings().retention),
     firstSeen: before.firstSeen ?? now,
     lastCorrect: correct,
     lastGrade: grade,
-    streak: correct ? (before.streak || 0) + 1 : 0,
-    scaffold: nextScaffold(scaffoldBefore, { correct, grade, confidence, hints, mode })
+    streak: correct ? (before.streak || 0) + 1 : 0
   };
-  data.items[itemKey] = memory;
 
   data.log.push({
     ts: now,
     item: itemKey,
-    skill: item.skillKey,
+    skill: item.lessonKey,
+    type: item.step.type,
     mode,
     grade,
     correct,
+    score: score == null ? undefined : Math.round(score * 100) / 100,
     conf: confidence,
     hints,
     ms: Math.round(latencyMs),
@@ -277,72 +238,34 @@ export function recordAttempt({
   });
 
   const events = [];
-  for (const reward of xpForAttempt({
-    correct,
-    isNew,
-    gapDays,
-    difficulty: before.difficulty,
-    hints,
-    revealed,
-    attempted: Boolean(String(response || "").trim()) || Boolean(chosen?.length),
-    retry
-  })) {
-    events.push(addReward("xp", reward.amount, reward.reason, now));
-  }
-
-  if (mode === "placement" && correct && confidence >= 3) {
-    data.skills[item.skillKey] = { ...(data.skills[item.skillKey] || {}), testedOut: true };
+  if (awardXp) {
+    for (const reward of xpForAttempt({ correct, score, isNew, gapDays, difficulty: before.difficulty, hints, revealed, attempted: Boolean(String(response || "").trim()) || Boolean(chosen?.length), retry, mode })) {
+      events.push(...addReward("xp", reward.amount, reward.reason, now));
+    }
   }
 
   const mistake = updateMistakes({ item, correct, confidence, response, chosen, revealed, sessionId, now, events });
+  if (mode === "review" || mode === "relearn") {
+    events.push(...questEvent("review", 1));
+  }
+  if (item.step.type === "estimate" && correct) {
+    data.stats.closeEstimates = (data.stats.closeEstimates || 0) + 1;
+    events.push(...questEvent("estimate-close", 1));
+  }
 
-  const goalJustMet = countTowardGoal(now, events);
-
-  const masteryAfter = masteryOf(item.skillKey, now);
-  const skillState = (data.skills[item.skillKey] = { ...(data.skills[item.skillKey] || {}), lastPracticed: now });
+  const masteryAfter = masteryOf(item.lessonKey, now);
+  const skillState = (data.skills[item.lessonKey] = { ...(data.skills[item.lessonKey] || {}), lastPracticed: now });
   let masteredNow = false;
-  if (masteryAfter >= MASTERY_THRESHOLD && !skillState.masteredAt) {
+  if (item.kind === "lesson" && masteryAfter >= MASTERY_THRESHOLD && !skillState.masteredAt) {
     skillState.masteredAt = now;
     masteredNow = true;
-    events.push(addReward("xp", 25, `Mastered “${item.skillTitle}”`, now));
   }
 
-  const newBadges = evaluateBadges(now);
+  events.push(...evaluateBadges(now));
   persist();
-
-  return {
-    memory,
-    isNew,
-    gapDays,
-    events,
-    xp: events.reduce((sum, event) => sum + (event.kind === "xp" ? event.amount : 0), 0),
-    masteryBefore,
-    masteryAfter,
-    masteredNow,
-    goalJustMet,
-    newBadges,
-    ...mistake
-  };
+  return { isNew, gapDays, events, xp: sumXp(events), masteryBefore, masteryAfter, masteredNow, ...mistake };
 }
 
-function nextScaffold(current, { correct, grade, confidence, hints, mode }) {
-  if (mode === "placement") {
-    return correct && confidence >= 3 ? 2 : 1;
-  }
-  if (!correct) {
-    return 1;
-  }
-  if (current === 0) {
-    return confidence >= 3 && hints === 0 ? 2 : 1;
-  }
-  if (current === 1) {
-    return grade >= 3 ? 2 : 1;
-  }
-  return 2;
-}
-
-// Misses open (or reopen) a notebook entry; a correct answer on a later day
-// resolves it. Confident misses are flagged — they're hypercorrected best.
 function updateMistakes({ item, correct, confidence, response, chosen, revealed, sessionId, now, events }) {
   const data = progress();
   const existing = data.mistakes[item.key];
@@ -351,7 +274,7 @@ function updateMistakes({ item, correct, confidence, response, chosen, revealed,
     const open = existing && !existing.resolvedAt;
     data.mistakes[item.key] = {
       item: item.key,
-      skill: item.skillKey,
+      skill: item.lessonKey,
       firstTs: existing?.firstTs ?? now,
       lastTs: now,
       count: (existing?.count || 0) + 1,
@@ -369,42 +292,137 @@ function updateMistakes({ item, correct, confidence, response, chosen, revealed,
   if (existing && !existing.resolvedAt && existing.session !== sessionId && dayKey(existing.lastTs) !== dayKey(now)) {
     existing.resolvedAt = now;
     data.stats.resolved += 1;
+    events.push(...questEvent("mistake-fixed", 1));
     let hyperFixed = false;
     if (existing.hyper) {
       data.stats.hyperFixed += 1;
       hyperFixed = true;
-      events.push(addReward("xp", 10, "Fixed a mistake you'd been confident about", now));
+      events.push(...addReward("xp", 10, "Fixed a mistake you'd been confident about", now));
     }
     return { mistakeOpened: false, mistakeResolved: true, hyperFixed };
   }
-
   return { mistakeOpened: false, mistakeResolved: false, hyperFixed: false };
 }
 
-function countTowardGoal(now, events) {
+// ── finishing things ────────────────────────────────────────────────────────
+
+export function completeLesson(lessonKey, { right, total, now = Date.now() }) {
   const data = progress();
-  const streak = data.streak;
-  const today = dayKey(now);
-  streak.history[today] = (streak.history[today] || 0) + 1;
+  const lesson = getLesson(lessonKey);
+  const score = total ? right / total : 1;
+  const stars = starsFor(score);
+  const previous = data.lessons[lessonKey];
+  const firstTime = !previous?.completedAt;
+  data.lessons[lessonKey] = {
+    completedAt: previous?.completedAt ?? now,
+    stars: Math.max(previous?.stars || 0, stars),
+    best: Math.max(previous?.best || 0, score),
+    attempts: (previous?.attempts || 0) + 1,
+    lastPlayed: now
+  };
 
-  if (streak.history[today] < settings().dailyGoal || streak.lastDay === today) {
-    return false;
+  const events = [];
+  events.push(...addReward("xp", firstTime ? 20 : 8, firstTime ? `Finished “${lesson.title}”` : `Replayed “${lesson.title}”`, now));
+  if (stars === 3) {
+    events.push(...addReward("xp", 10, "Three stars", now));
+    events.push(...questEvent("perfect", 1));
   }
+  events.push(...questEvent("lesson", 1));
 
+  const unit = getUnit(lesson.unitKey);
+  const unitDone = unit && unit.lessons.every(isLessonComplete);
+  if (firstTime && unitDone) {
+    events.push(...addReward("xp", 40, `Cleared the “${unit.title}” unit`, now));
+  }
+  events.push(...evaluateBadges(now));
+  persist();
+  return { score, stars, firstTime, unitDone: Boolean(unitDone && firstTime), events, next: nextLessonKey(lesson.courseId) };
+}
+
+// Games: record the score and pay XP for it (games don't pay per answer).
+export function recordGame(gameId, { score, xp, reason, won = null, now = Date.now() }) {
+  const data = progress();
+  const previous = data.games[gameId] || { best: null, plays: 0 };
+  const isBest = previous.best == null || score > previous.best;
+  data.games[gameId] = {
+    best: isBest ? score : previous.best,
+    plays: previous.plays + 1,
+    lastPlayed: now,
+    won: Boolean(previous.won || won)
+  };
+  const events = xp > 0 ? addReward("xp", xp, reason, now) : [];
+  events.push(...evaluateBadges(now));
+  persist();
+  return { isBest, previousBest: previous.best, events };
+}
+
+export function recordProject(projectKey, { score, stages, interview, now = Date.now() }) {
+  const data = progress();
+  const project = getLesson(projectKey);
+  const previous = data.lessons[projectKey];
+  data.lessons[projectKey] = {
+    completedAt: previous?.completedAt ?? now,
+    best: Math.max(previous?.best || 0, score),
+    stars: Math.max(previous?.stars || 0, starsFor(score)),
+    attempts: (previous?.attempts || 0) + 1,
+    lastPlayed: now,
+    lastStages: stages,
+    interview: Boolean(interview || previous?.interview)
+  };
+  const events = addReward("xp", Math.round(30 + 70 * score), `Designed “${project.title}” (${Math.round(score * 100)}%)`, now);
+  events.push(...evaluateBadges(now));
+  persist();
+  return { events, previousBest: previous?.best ?? null };
+}
+
+// ── XP, streak, level ───────────────────────────────────────────────────────
+
+// Adds a reward and returns the events it caused (XP, goal met, level up,
+// quest completions) so callers can show them.
+export function addReward(kind, amount, reason, now = Date.now()) {
+  const data = progress();
+  const events = [{ ts: now, kind, amount, reason }];
+  data.rewards.push(events[0]);
+  if (kind !== "xp" || amount <= 0) {
+    return events;
+  }
+  const levelBefore = levelFor(data.stats.xpTotal || 0).level;
+  data.stats.xpTotal = (data.stats.xpTotal || 0) + amount;
+  const levelAfter = levelFor(data.stats.xpTotal).level;
+  if (levelAfter > levelBefore) {
+    const event = { ts: now, kind: "level", amount: levelAfter, reason: `Reached level ${levelAfter}` };
+    data.rewards.push(event);
+    events.push(event);
+  }
+  events.push(...countTowardGoal(amount, now));
+  if (!reason.startsWith("Quest complete")) {
+    events.push(...questEvent("xp", amount));
+  }
+  return events;
+}
+
+function countTowardGoal(amount, now) {
+  const streak = progress().streak;
+  const today = dayKey(now);
+  streak.history[today] = (streak.history[today] || 0) + amount;
+  if (streak.history[today] < settings().dailyXp || streak.lastDay === today) {
+    return [];
+  }
   streak.current = streak.lastDay === addDays(today, -1) ? streak.current + 1 : 1;
   streak.lastDay = today;
   streak.best = Math.max(streak.best, streak.current);
-  events.push(addReward("streak", 0, `Daily goal met · ${streak.current}-day streak`, now));
-
+  const events = [{ ts: now, kind: "streak", amount: streak.current, reason: `Daily goal met · ${streak.current}-day streak` }];
+  progress().rewards.push(events[0]);
   if (streak.current % 7 === 0 && streak.freezes < 2) {
     streak.freezes += 1;
-    events.push(addReward("freeze", 0, "Earned a streak freeze for a week of meeting your goal", now));
+    const freeze = { ts: now, kind: "freeze", amount: 1, reason: "Earned a streak freeze for a week of meeting your goal" };
+    progress().rewards.push(freeze);
+    events.push(freeze);
   }
-  return true;
+  return events;
 }
 
-// Called on launch: bridges missed days with freezes, or quietly restarts the
-// streak. Never shames — the Today screen just offers a short catch-up.
+// On launch: bridge missed days with freezes, or quietly restart the streak.
 export function rollStreak(now = Date.now()) {
   const streak = progress().streak;
   const today = dayKey(now);
@@ -430,6 +448,15 @@ export function rollStreak(now = Date.now()) {
   return { usedFreezes: 0, restarted: true };
 }
 
+export function levelInfo() {
+  return levelFor(progress().stats.xpTotal || 0);
+}
+
+export function weekXp(now = Date.now()) {
+  const since = now - 7 * DAY_MS;
+  return progress().rewards.filter((event) => event.kind === "xp" && event.ts >= since).reduce((sum, event) => sum + event.amount, 0);
+}
+
 export function recordJol(itemKey, answer) {
   const memory = progress().items[itemKey];
   if (memory) {
@@ -438,36 +465,7 @@ export function recordJol(itemKey, answer) {
   }
 }
 
-export function recordCapstone(libKey, right, total, now = Date.now()) {
-  const record = progress().libraries[libKey];
-  const score = total ? right / total : 0;
-  const events = [];
-  if (record) {
-    record.capstoneBest = Math.max(record.capstoneBest ?? 0, score);
-  }
-  if (score >= 0.8) {
-    events.push(addReward("xp", 30, `Cleared a capstone with ${right}/${total}`, now));
-    if (!progress().badges.capstone) {
-      progress().badges.capstone = now;
-    }
-  }
-  persist();
-  return events;
-}
-
-export function addReward(kind, amount, reason, now = Date.now()) {
-  const event = { ts: now, kind, amount, reason };
-  progress().rewards.push(event);
-  if (kind === "xp") {
-    progress().stats.xpTotal = (progress().stats.xpTotal || 0) + amount;
-  }
-  return event;
-}
-
-export function weekXp(now = Date.now()) {
-  const since = now - 7 * DAY_MS;
-  return progress().rewards.filter((event) => event.kind === "xp" && event.ts >= since).reduce((sum, event) => sum + event.amount, 0);
-}
+// ── badges ──────────────────────────────────────────────────────────────────
 
 export function earnedBadges() {
   const earned = progress().badges;
@@ -476,7 +474,15 @@ export function earnedBadges() {
 
 function evaluateBadges(now) {
   const data = progress();
+  const lessons = Object.entries(data.lessons);
   const checks = {
+    "first-lesson": () => lessons.some(([key, record]) => record.completedAt && !key.includes("::lab::")),
+    perfect: () => lessons.some(([key, record]) => record.stars === 3 && !key.includes("::lab::")),
+    "unit-cleared": () => [...catalog().units.values()].some((unit) => unit.lessons.length > 0 && unit.lessons.every(isLessonComplete)),
+    boss: () => Object.entries(data.games).some(([id, record]) => id.startsWith("boss:") && record.won),
+    architect: () => lessons.some(([key, record]) => key.includes("::lab::") && record.best >= 0.9),
+    estimator: () => (data.stats.closeEstimates || 0) >= 10,
+    combo: () => (data.stats.bestCombo || 0) >= 10,
     "first-mastery": () => Object.values(data.skills).some((skill) => skill.masteredAt),
     "long-term": () => Object.values(data.items).filter((memory) => memory.lastCorrect && memory.stability >= 30).length >= 10,
     hypercorrected: () => data.stats.hyperFixed >= 3,
@@ -484,17 +490,22 @@ function evaluateBadges(now) {
       const result = calibration(data.log);
       return result.total >= 40 && result.error <= 0.1;
     },
-    "clean-notebook": () => data.stats.resolved >= 10,
     "habit-7": () => data.streak.best >= 7
   };
-  const fresh = [];
+  const events = [];
   for (const badge of BADGES) {
     if (!data.badges[badge.id] && checks[badge.id]?.()) {
       data.badges[badge.id] = now;
-      fresh.push(badge);
+      const event = { ts: now, kind: "badge", amount: 0, reason: `Badge: ${badge.title}`, badge };
+      data.rewards.push(event);
+      events.push(event);
     }
   }
-  return fresh;
+  return events;
+}
+
+function sumXp(events) {
+  return events.reduce((sum, event) => sum + (event.kind === "xp" ? event.amount : 0), 0);
 }
 
 function clip(text, max) {

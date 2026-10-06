@@ -1,0 +1,384 @@
+{
+  "id": "chat-app",
+  "title": "Design a Chat App",
+  "summary": "Real-time messages for 50M people, delivered once and in order.",
+  "difficulty": "Intermediate",
+  "minutes": 35,
+  "brief": "You're building a WhatsApp-style messenger for **50M daily active users**, each sending about **40 messages a day**. It supports 1:1 chats and group chats of up to **500 members**, shows who is online, and marks every message as delivered and read. An online recipient should see a message in **well under a second**, offline users must get everything when they reconnect, and history is kept **forever** and synced to every device. Text only for v1: voice and video calls, media, and end-to-end encryption come later.",
+  "stages": [
+    {
+      "id": "requirements",
+      "title": "Requirements",
+      "steps": [
+        {
+          "id": "chat-scope",
+          "type": "sort",
+          "prompt": "Sort each item: functional, non-functional, or out of scope for v1?",
+          "buckets": ["Functional", "Non-functional", "Out of scope"],
+          "items": [
+            { "text": "Send a text message to one person", "bucket": "Functional" },
+            { "text": "Create a group chat of up to 500 members", "bucket": "Functional" },
+            { "text": "See whether a contact is online", "bucket": "Functional" },
+            { "text": "Online recipients see a message within 500 ms", "bucket": "Non-functional", "why": "A latency target says how well the system works, not what it does." },
+            { "text": "A message the server has accepted is never lost", "bucket": "Non-functional", "why": "Durability is a quality guarantee on top of the send feature." },
+            { "text": "The service keeps working if a data center goes down", "bucket": "Non-functional" },
+            { "text": "Voice and video calls", "bucket": "Out of scope", "why": "Calls need a separate real-time media stack (WebRTC, relay servers); the brief defers them." },
+            { "text": "End-to-end encryption", "bucket": "Out of scope", "why": "Important, but the brief explicitly leaves it for a later version." }
+          ],
+          "why": "Functional = what users can do. Non-functional = how fast, durable and available it must be. Out of scope = what the brief explicitly defers, so you don't spend interview time on it."
+        },
+        {
+          "id": "chat-core",
+          "type": "choice",
+          "prompt": "Which features are core for v1? Pick all that apply.",
+          "options": ["1:1 messaging", "Group chats up to 500 members", "Online presence", "Delivery and read receipts", "Sending photos and videos", "Full-text search over all history"],
+          "answer": ["1:1 messaging", "Group chats up to 500 members", "Online presence", "Delivery and read receipts"],
+          "why": "These four come straight from the brief. Each one later shapes the design: groups drive fan-out, presence drives heartbeats, receipts drive per-member read cursors.",
+          "misconceptions": {
+            "Sending photos and videos": "The brief says text only for v1. Media would add a separate upload path through object storage and a CDN.",
+            "Full-text search over all history": "Not in the brief. It would need a search index over billions of messages, and it clashes with the end-to-end encryption planned later."
+          }
+        },
+        {
+          "id": "chat-requirements-recap",
+          "type": "concept",
+          "title": "What we agreed",
+          "body": "**Functional:** 1:1 and group chat (up to 500 members), online presence, delivered and read receipts, full history on every device.\n\n**Non-functional:** under 500 ms delivery to online users, no lost messages, the same order for every member, highly available.\n\n**Scale:** 50M DAU × 40 messages a day. Text only.",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "50M", "label": "daily active users" },
+              { "value": "40", "label": "messages per user per day" },
+              { "value": "500", "label": "max group size" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "estimation",
+      "title": "Estimation",
+      "steps": [
+        {
+          "id": "chat-msg-qps",
+          "type": "estimate",
+          "prompt": "On average, how many messages are sent per second?",
+          "given": [["Daily active users", "50M"], ["Messages per user per day", "40"], ["Seconds per day", "≈ 100K (86,400)"]],
+          "answer": 20000,
+          "unit": "messages/sec",
+          "tolerance": 0.3,
+          "solution": ["50M × 40 = 2B messages/day", "2B ÷ 100K s = 20,000 messages/sec"],
+          "why": "That's the write rate into the message store. Peaks run 2–3× the average, so plan for roughly 50K messages/sec."
+        },
+        {
+          "id": "chat-storage-day",
+          "type": "estimate",
+          "prompt": "How much new message data is stored per day?",
+          "given": [["Messages per day", "2B (from the last step)"], ["Average stored message (text + IDs + timestamp)", "≈ 100 bytes"]],
+          "answer": 200,
+          "unit": "GB/day",
+          "tolerance": 0.3,
+          "solution": ["2B × 100 bytes = 200B bytes", "200B bytes = 200 GB/day"],
+          "why": "Text is tiny: a whole day of chat for 50M people is only 200 GB. The hard parts are the write rate and keeping it forever, not the daily volume."
+        },
+        {
+          "id": "chat-storage-year",
+          "type": "estimate",
+          "prompt": "How much message storage after one year, before replication?",
+          "given": [["New data per day", "200 GB"], ["Days per year", "365"]],
+          "answer": 73,
+          "unit": "TB",
+          "tolerance": 0.4,
+          "solution": ["200 GB × 365 ≈ 73,000 GB", "≈ 73 TB per year (≈ 220 TB with 3 replicas)"],
+          "why": "History is kept forever, so this grows by ~70 TB every year. That's too much for one machine and keeps growing, so the store must partition across many nodes."
+        },
+        {
+          "id": "chat-ws-servers",
+          "type": "estimate",
+          "prompt": "How many WebSocket servers do you need at peak?",
+          "given": [["Daily active users", "50M"], ["Online at the same time at peak", "20%"], ["Open connections per WebSocket server", "≈ 100K"]],
+          "answer": 100,
+          "unit": "servers",
+          "tolerance": 0.3,
+          "solution": ["50M × 20% = 10M concurrent connections", "10M ÷ 100K per server = 100 servers"],
+          "why": "Open connections, not requests per second, size this tier: each server holds ~100K mostly idle sockets. Add headroom so that when one fails, its users can reconnect elsewhere."
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "title": "API",
+      "steps": [
+        {
+          "id": "chat-api",
+          "type": "api",
+          "prompt": "New messages are **pushed** to clients over a WebSocket (next step). Design the HTTPS endpoints the app calls. Like Slack and Discord, the app can send a message with a plain POST and receive over the socket.",
+          "endpoints": [
+            {
+              "purpose": "Send a message to a conversation (1:1 or group)",
+              "method": "POST",
+              "path": ["/conversations/{id}/messages", "/chats/{id}/messages", "/groups/{id}/messages", "/channels/{id}/messages", "/rooms/{id}/messages", "/threads/{id}/messages", "/messages"]
+            },
+            {
+              "purpose": "Load older messages in a conversation, one page at a time",
+              "method": "GET",
+              "path": ["/conversations/{id}/messages", "/chats/{id}/messages", "/groups/{id}/messages", "/channels/{id}/messages", "/rooms/{id}/messages", "/threads/{id}/messages", "/conversations/{id}/history", "/chats/{id}/history", "/messages"]
+            },
+            {
+              "purpose": "Create a group chat with an initial list of members",
+              "method": "POST",
+              "path": ["/conversations", "/groups", "/chats", "/channels", "/rooms", "/group-chats"]
+            },
+            {
+              "purpose": "Add a member to a group",
+              "method": ["POST", "PUT"],
+              "path": ["/conversations/{id}/members", "/groups/{id}/members", "/chats/{id}/members", "/channels/{id}/members", "/rooms/{id}/members", "/conversations/{id}/participants", "/groups/{id}/participants", "/groups/{id}/users", "/conversations/{id}/members/{userId}", "/groups/{id}/members/{userId}"]
+            },
+            {
+              "purpose": "Mark a conversation as read up to a given message",
+              "method": ["POST", "PUT", "PATCH"],
+              "path": ["/conversations/{id}/read", "/chats/{id}/read", "/groups/{id}/read", "/conversations/{id}/receipts", "/chats/{id}/receipts", "/conversations/{id}/read-receipts", "/conversations/{id}/read-cursor", "/conversations/{id}/read-marker", "/conversations/{id}/ack", "/messages/{id}/read", "/messages/{id}/receipts", "/conversations/{id}/messages/{id}/read", "/receipts", "/read-receipts"]
+            }
+          ],
+          "why": "Paths name resources: conversations, their messages and their members. A read receipt is a per-member cursor (\"read up to message 812\"), so one call covers a whole batch of messages instead of one call per message."
+        },
+        {
+          "id": "chat-push-channel",
+          "type": "choice",
+          "prompt": "Bob is online. How should the server get Alice's new message to him within 500 ms?",
+          "options": [
+            "Bob's app keeps a WebSocket open, and the server pushes a `message.new` event down it",
+            "Bob's app polls `GET /conversations/{id}/messages` every 2 seconds",
+            "Long polling: Bob's app holds a request open until a message arrives, then reconnects",
+            "Send every message as a mobile push notification"
+          ],
+          "answer": "Bob's app keeps a WebSocket open, and the server pushes a `message.new` event down it",
+          "why": "A WebSocket is one long-lived, two-way connection: the server pushes the instant a message arrives, and the same socket carries receipts, typing and presence events.",
+          "misconceptions": {
+            "Bob's app polls `GET /conversations/{id}/messages` every 2 seconds": "10M online users polling every 2 s is 5M requests/sec, nearly all returning nothing, and messages are still up to 2 s late.",
+            "Long polling: Bob's app holds a request open until a message arrives, then reconnects": "It works, but every delivery costs a fresh request, and the server holding Bob's poll may not be the one that received Alice's message. A WebSocket is cheaper and two-way.",
+            "Send every message as a mobile push notification": "Push notifications (APNs/FCM) are best-effort, rate-limited and slower. They're the fallback for offline users, not the main channel."
+          }
+        }
+      ]
+    },
+    {
+      "id": "data",
+      "title": "Data model",
+      "steps": [
+        {
+          "id": "chat-message-store",
+          "type": "choice",
+          "prompt": "Where should 2B messages a day, kept forever (~70 TB more each year), live?",
+          "options": [
+            "A wide-column store such as Cassandra or HBase",
+            "A single Postgres table with an index on conversation_id",
+            "Redis, so every read comes from memory",
+            "Object storage, one file per conversation",
+            "Elasticsearch, so messages are searchable"
+          ],
+          "answer": "A wide-column store such as Cassandra or HBase",
+          "why": "The access pattern is simple but huge: append to a conversation, read the latest N in order. Wide-column stores shard by partition key and keep rows sorted within it. Facebook Messenger used HBase and Discord used Cassandra.",
+          "misconceptions": {
+            "A single Postgres table with an index on conversation_id": "Fine at small scale, but 20K+ inserts/sec and ~70 TB more every year means sharding it yourself, and you'd use none of its joins.",
+            "Redis, so every read comes from memory": "Keeping years of history in RAM is very expensive, and a cache isn't a durable system of record. Use it for hot, short-lived data like presence.",
+            "Object storage, one file per conversation": "Objects are immutable: appending one 100-byte message means rewriting the file, and you can't range-query \"the 50 messages before #812\".",
+            "Elasticsearch, so messages are searchable": "A search index is a secondary copy for queries, not a durable primary store, and it's heavy for a write-dominated workload."
+          }
+        },
+        {
+          "id": "chat-fields-sort",
+          "type": "sort",
+          "prompt": "Where does each field live?",
+          "buckets": ["messages", "conversation_members", "users", "Cache only"],
+          "items": [
+            { "text": "message_id (sequence number within the conversation)", "bucket": "messages" },
+            { "text": "sender_id", "bucket": "messages" },
+            { "text": "body (the message text)", "bucket": "messages" },
+            { "text": "role in the group (admin or member)", "bucket": "conversation_members" },
+            { "text": "last_read_message_id", "bucket": "conversation_members", "why": "A read receipt is one cursor per member per conversation, not a flag on every message, which would mean up to 500 writes per message in a big group." },
+            { "text": "display_name", "bucket": "users" },
+            { "text": "online status and last heartbeat", "bucket": "Cache only", "why": "Presence changes constantly and is worthless after a minute, so it lives in memory with a TTL." },
+            { "text": "which WebSocket server holds the user's connection", "bucket": "Cache only", "why": "This connection registry changes on every reconnect and rebuilds itself when clients reconnect, so it doesn't need a durable database." }
+          ],
+          "why": "Messages are immutable rows grouped by conversation. Membership holds per-member state such as role and read cursor. Volatile connection state never touches the durable store."
+        },
+        {
+          "id": "chat-partition-fill",
+          "type": "fill",
+          "text": "Partition the messages table by [[conversation_id]] so a chat's history sits together, and sort rows within each partition by [[message_id|sequence number]], newest first, so \"the latest 50\" is one sequential read. A busy group's history grows forever, so also add a [[time bucket|month]] to the partition key to stop any partition growing without bound.",
+          "bank": ["conversation_id", "message_id", "time bucket", "sender_id", "user_id", "random UUID"],
+          "why": "Partitioning by conversation means opening a chat touches one partition on one replica set. Adding a time bucket to the key (Discord uses roughly 10-day buckets per channel) caps partition size. Partitioning by sender would scatter one chat across every node."
+        }
+      ]
+    },
+    {
+      "id": "design",
+      "title": "High-level design",
+      "steps": [
+        {
+          "id": "chat-hld-framing",
+          "type": "concept",
+          "title": "Two paths for every message",
+          "body": "- **Write path:** the Chat service persists the message, *then* acknowledges the sender, so nothing accepted is ever lost.\n- **Delivery path:** look up which WebSocket server holds each recipient and publish to that server; offline recipients get a push notification.\n\nEverything is stateless except the WebSocket tier, which holds ~10M open connections.",
+          "visual": { "kind": "flow", "steps": ["Sender", "Chat service", "Message store", "Pub/sub", "Recipient's WS server", "Recipient"] }
+        },
+        {
+          "id": "chat-hld",
+          "type": "build",
+          "prompt": "Draw the backend for 20K messages/sec and 10M open connections. It must persist every message, deliver to online recipients on whichever WebSocket server they're connected to, push-notify offline users, and track presence. Label your services.",
+          "hint": "Ask two questions for every message: where is it stored, and how does it find the server holding the recipient's socket?",
+          "palette": ["client", "lb", "ws", "service", "cache", "queue", "db_nosql", "notify", "db_sql", "object_store", "search", "cdn"],
+          "start": { "nodes": [{ "id": "c", "type": "client", "x": 8, "y": 48 }], "edges": [] },
+          "rules": {
+            "nodes": [
+              { "type": "ws", "why": "10M users need a long-lived connection the server can push down; plain request/response servers can't push." },
+              { "type": "db_nosql", "why": "2B small messages a day, kept forever and read by conversation and time: a wide-column store partitions that natively." }
+            ],
+            "edges": [
+              { "from": "async", "to": "ws", "why": "Recipients are spread over ~100 WebSocket servers. Each server subscribes to its own topic, so a message published for Bob reaches the server holding his socket." },
+              { "from": "cache", "to": "service|ws", "why": "The connection registry (user → WebSocket server) and presence are hot, short-lived lookups made for every message: an in-memory store with TTLs." },
+              { "from": "notify", "to": "compute|async", "why": "When the registry shows no live connection, the message is handed to the notification service, which pushes through APNs/FCM." }
+            ],
+            "paths": [
+              { "through": ["client", "service", "db"], "why": "A sent message is persisted by the Chat service before the sender sees ✓, so nothing accepted is ever lost." },
+              { "through": ["service", "ws", "client"], "why": "Delivery: the Chat service hands the message to the recipient's WebSocket server, which pushes it down the open connection." }
+            ],
+            "forbidden": [
+              { "from": "client", "to": "storage", "why": "Clients never touch the message store directly: no auth, no sequencing, no delivery." }
+            ],
+            "connected": true,
+            "pass": 0.75
+          },
+          "solution": {
+            "nodes": [
+              { "id": "c", "type": "client", "x": 8, "y": 48 },
+              { "id": "lb", "type": "lb", "x": 24, "y": 48 },
+              { "id": "ws", "type": "ws", "x": 42, "y": 18, "label": "WebSocket servers" },
+              { "id": "bus", "type": "queue", "x": 56, "y": 45, "label": "Pub/sub (topic per WS server)" },
+              { "id": "chat", "type": "service", "x": 42, "y": 75, "label": "Chat service" },
+              { "id": "presence", "type": "service", "x": 78, "y": 18, "label": "Presence service" },
+              { "id": "cache", "type": "cache", "x": 78, "y": 45, "label": "Session & presence cache" },
+              { "id": "db", "type": "db_nosql", "x": 78, "y": 70, "label": "Message store (Cassandra)" },
+              { "id": "push", "type": "notify", "x": 78, "y": 90, "label": "Push notifications" }
+            ],
+            "edges": [
+              { "from": "c", "to": "lb" },
+              { "from": "lb", "to": "ws" },
+              { "from": "lb", "to": "chat" },
+              { "from": "ws", "to": "bus" },
+              { "from": "chat", "to": "bus" },
+              { "from": "ws", "to": "presence" },
+              { "from": "presence", "to": "cache" },
+              { "from": "chat", "to": "cache" },
+              { "from": "chat", "to": "db" },
+              { "from": "chat", "to": "push" }
+            ]
+          },
+          "why": "A stateless Chat service writes to a partitioned message store, a cache maps each user to their WebSocket server, and pub/sub carries each message to the right server. Presence and push notifications hang off the side so they never slow delivery."
+        }
+      ]
+    },
+    {
+      "id": "deep-dive",
+      "title": "Deep dives",
+      "steps": [
+        {
+          "id": "chat-route-servers",
+          "type": "choice",
+          "prompt": "Alice is connected to WebSocket server 3 and Bob to server 17. How does Alice's message reach Bob?",
+          "options": [
+            "Look up Bob's server in the connection registry and publish to server 17's topic; server 17 pushes it to Bob",
+            "Broadcast every message to all 100 WebSocket servers; each one drops it unless it holds Bob",
+            "Use sticky sessions so Alice and Bob always land on the same server",
+            "Write it to the database; server 17 polls the database for Bob's new messages"
+          ],
+          "answer": "Look up Bob's server in the connection registry and publish to server 17's topic; server 17 pushes it to Bob",
+          "why": "A registry (user → server, kept in a cache with a TTL) plus one topic per server on a pub/sub bus turns delivery into one lookup and one publish, however many servers you run.",
+          "misconceptions": {
+            "Broadcast every message to all 100 WebSocket servers; each one drops it unless it holds Bob": "Every server would process every message: 20K/sec becomes 2M/sec of mostly wasted work, and it gets worse with every server you add.",
+            "Use sticky sessions so Alice and Bob always land on the same server": "Stickiness keeps one user on one server. Bob talks to hundreds of people and a 500-member group spans many servers, so you can't put everyone together.",
+            "Write it to the database; server 17 polls the database for Bob's new messages": "Polling adds latency and hammers the store with reads that usually find nothing. Push through pub/sub instead."
+          }
+        },
+        {
+          "id": "chat-send-order",
+          "type": "order",
+          "prompt": "Bob is online. Put the life of Alice's message in order.",
+          "items": [
+            "Alice's app tags the message with a client-generated ID and sends it",
+            "The Chat service assigns the conversation's next sequence number",
+            "The message is written to the message store, and Alice sees ✓ (sent)",
+            "The registry shows Bob on server 17, so the message is published to its topic",
+            "Server 17 pushes it; Bob's app acks, and Alice sees ✓✓ (delivered)",
+            "Bob opens the chat; his read cursor advances, and Alice sees it as read"
+          ],
+          "why": "Persist before acknowledging, so an accepted message survives any crash, and deliver only after that, so a recipient never sees a message that could still be lost. Each tick is a separate event flowing back to Alice."
+        },
+        {
+          "id": "chat-ordering",
+          "type": "choice",
+          "prompt": "Two members of a group hit send at almost the same instant. What's the simplest way to make every member see the same order?",
+          "options": [
+            "The Chat service gives each message the conversation's next sequence number, and clients sort by it",
+            "Sort by the timestamp from the sender's phone",
+            "Show messages in the order each device happens to receive them",
+            "Use one global auto-increment ID for every message in the system"
+          ],
+          "answer": "The Chat service gives each message the conversation's next sequence number, and clients sort by it",
+          "why": "Order only has to hold within a conversation, so a per-conversation counter (or a time-sortable ID) is enough. It also lets clients spot gaps: receiving 41 then 43 means 42 is missing.",
+          "misconceptions": {
+            "Sort by the timestamp from the sender's phone": "Phone clocks drift and can be set by hand. A phone that's 2 minutes fast would jump its messages ahead of everyone else's.",
+            "Show messages in the order each device happens to receive them": "Network paths differ, so two members can receive the same pair in opposite orders and see different conversations.",
+            "Use one global auto-increment ID for every message in the system": "It does order messages, but one counter for 20K+ messages/sec across the whole system is a bottleneck and a single point of failure. You only need order within each conversation."
+          }
+        },
+        {
+          "id": "chat-delivery-match",
+          "type": "match",
+          "prompt": "Match each failure to the mechanism that handles it.",
+          "pairs": [
+            ["Alice's app never got the ack, so it resends the same message", "The server dedupes by the client-generated message ID"],
+            ["Bob's phone was offline for three hours", "On reconnect, fetch everything after his last synced sequence number"],
+            ["Bob is offline and doesn't know he has a message", "Push notification through APNs / FCM"],
+            ["Bob's app receives #41, then #43", "Detect the gap and fetch #42 before showing #43"],
+            ["Bob's phone died without closing its socket", "Heartbeats stop and his presence entry expires (TTL)"]
+          ],
+          "why": "Delivery is at-least-once: retries guarantee nothing is lost, and IDs plus sequence numbers make duplicates and gaps harmless. To the user it looks exactly-once."
+        },
+        {
+          "id": "chat-presence",
+          "type": "choice",
+          "prompt": "How should you track whether each of 10M connected users is online?",
+          "options": [
+            "Clients heartbeat every ~30 s over the socket; each heartbeat refreshes a presence key with a ~90 s TTL",
+            "Mark users offline when their WebSocket closes and online when it opens",
+            "Write every online/offline change to the users table in SQL",
+            "Push every status change to every member of every group the user is in"
+          ],
+          "answer": "Clients heartbeat every ~30 s over the socket; each heartbeat refreshes a presence key with a ~90 s TTL",
+          "why": "Heartbeats with a TTL ride out brief network drops (a missed beat or two is fine), and a dead device goes offline on its own when its key expires.",
+          "misconceptions": {
+            "Mark users offline when their WebSocket closes and online when it opens": "Mobile networks drop and reconnect constantly, so status would flicker. Worse, a phone that dies never sends a close, so it would look online forever.",
+            "Write every online/offline change to the users table in SQL": "Presence is high-churn and worthless after a minute. Durable writes waste the database; an in-memory store with TTLs fits.",
+            "Push every status change to every member of every group the user is in": "With 500-member groups, one user's flicker becomes hundreds of pushes. Fan presence out to small contact lists, and let big groups fetch it when opened."
+          }
+        },
+        {
+          "id": "chat-offline-text",
+          "type": "text",
+          "prompt": "Bob's phone was in a tunnel for an hour while 30 messages arrived for him. Explain how he ends up with every message, each exactly once, in the right order.",
+          "concepts": [
+            { "label": "Messages were persisted before being acknowledged", "any": ["persist*", "stored", "saved", "written to the database", "message store", "durabl*"] },
+            { "label": "A push notification tells him while he's offline", "any": ["push notification", "notif*", "apns", "fcm", "alert his phone"] },
+            { "label": "On reconnect, sync everything after his last sequence number", "any": ["sequence number", "last seen", "last synced", "cursor", "since last", "after last"] },
+            { "label": "Duplicates are dropped by message ID", "any": ["dedup*", "duplicat*", "idempotent", "message id", "unique id", "already has"] }
+          ],
+          "pass": 3,
+          "model": "Every message was persisted to the message store before the sender got an ack, so nothing was lost while Bob was away. Because he had no live connection, the Chat service sent him a push notification through APNs/FCM. When he reconnects, his app asks for everything after the last sequence number it has synced and sorts by sequence number, so the order matches everyone else's. Delivery is at-least-once, so the app dedupes by message ID and ignores any message it already has.",
+          "why": "Durable storage first, a push for awareness, cursor-based sync for completeness and order, and IDs for dedupe: together they make at-least-once delivery look exactly-once."
+        }
+      ]
+    }
+  ]
+}

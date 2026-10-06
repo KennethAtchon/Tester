@@ -1,0 +1,824 @@
+{
+  "id": "scaling-data",
+  "title": "Scaling the data layer",
+  "description": "Replicate, partition, and keep data correct once one database isn't enough.",
+  "lessons": [
+    {
+      "id": "replication",
+      "title": "Replication",
+      "summary": "Copies of your data for read scale and survival: leaders, followers, lag, failover, and quorums.",
+      "minutes": 9,
+      "steps": [
+        {
+          "id": "pretest-read-heavy",
+          "type": "choice",
+          "prompt": "Your Postgres primary is at 90% CPU, and 95% of its queries are reads. What's the cheapest effective first move?",
+          "options": [
+            "Add read replicas and send reads to them",
+            "Shard the data across four databases",
+            "Add a second leader that also accepts writes",
+            "Migrate to a NoSQL database"
+          ],
+          "answer": "Add read replicas and send reads to them",
+          "why": "Each replica holds a full copy of the data and can serve reads, so read capacity grows with every replica you add while writes still go to one place.",
+          "misconceptions": {
+            "Shard the data across four databases": "Sharding also works, but it's a big, hard-to-undo change. When the load is reads, replicas solve it for far less effort.",
+            "Add a second leader that also accepts writes": "A second write leader brings write conflicts and solves nothing here: the pressure comes from reads, not writes.",
+            "Migrate to a NoSQL database": "A migration costs months, and NoSQL stores still need replicas or partitions to scale reads."
+          }
+        },
+        {
+          "id": "leader-follower",
+          "type": "concept",
+          "title": "Leader and followers",
+          "body": "One node, the **leader**, accepts every write and streams its change log to **followers** (read replicas), which apply the changes in the same order. Reads can go to any copy.\n\n**Synchronous** replication waits for a follower to confirm before acknowledging a write. **Asynchronous** acknowledges at once and copies later: faster, but the newest writes are lost if the leader dies.",
+          "visual": {
+            "kind": "diagram",
+            "nodes": [
+              { "id": "app", "type": "app", "x": 12, "y": 50, "label": "App" },
+              { "id": "leader", "type": "db_sql", "x": 48, "y": 22, "label": "Leader" },
+              { "id": "f1", "type": "replica", "x": 86, "y": 22, "label": "Follower" },
+              { "id": "f2", "type": "replica", "x": 70, "y": 80, "label": "Follower" }
+            ],
+            "edges": [
+              ["app", "leader", "writes"],
+              ["app", "f2", "reads"],
+              ["leader", "f1", "change log"],
+              ["leader", "f2", "change log"]
+            ]
+          }
+        },
+        {
+          "id": "semi-sync",
+          "type": "choice",
+          "context": "A payments ledger runs one leader and three followers, each in a different zone.",
+          "prompt": "An acknowledged payment must survive even if the leader's disk dies a second later. Which setup fits best?",
+          "options": [
+            "Asynchronous replication to all three followers",
+            "Synchronous to one follower, asynchronous to the other two",
+            "Synchronous to all three followers",
+            "No replication, but hourly backups"
+          ],
+          "answer": "Synchronous to one follower, asynchronous to the other two",
+          "why": "Waiting for one follower guarantees every acknowledged write exists on two machines, while the async followers can't stall writes. This is often called **semi-synchronous** replication.",
+          "misconceptions": {
+            "Asynchronous replication to all three followers": "Async acknowledges before any copy exists. If the leader dies, its newest writes die with it.",
+            "Synchronous to all three followers": "Durable, but now any one slow or failed follower blocks every write. Availability gets worse as you add replicas.",
+            "No replication, but hourly backups": "Hourly backups can lose up to an hour of payments, and restoring takes far longer than failing over."
+          }
+        },
+        {
+          "id": "replication-lag",
+          "type": "concept",
+          "title": "Replication lag",
+          "body": "Async followers trail the leader, usually by milliseconds, but by seconds or more under heavy load. A user posts a comment, refreshes, and the read lands on a lagging replica: the comment seems gone.\n\nGuarantee **read-your-writes** by reading a user's own recent changes from the leader, or from a replica that has caught up to their last write.",
+          "visual": {
+            "kind": "flow",
+            "steps": ["Write to leader", "Leader acknowledges", "Read hits a lagging replica", "\"Where's my comment?\""]
+          }
+        },
+        {
+          "id": "route-reads",
+          "type": "sort",
+          "prompt": "Your app sends most reads to async replicas. Which of these reads should go to the leader instead?",
+          "buckets": ["Read from the leader", "A replica is fine"],
+          "items": [
+            { "text": "Showing users their profile right after they edit it", "bucket": "Read from the leader", "why": "Read-your-writes: a lagging replica would show the old profile." },
+            { "text": "Validating a password-reset token issued two seconds ago", "bucket": "Read from the leader", "why": "The token was just written; a replica may not have it yet and would reject a valid link." },
+            { "text": "Checking stock inside the transaction that decrements it", "bucket": "Read from the leader", "why": "A read that decides a write must see the latest data, or two buyers can claim the last item." },
+            { "text": "Rendering the public home page feed", "bucket": "A replica is fine", "why": "Nobody notices if it's a second behind." },
+            { "text": "Running the nightly analytics report", "bucket": "A replica is fine", "why": "Heavy scans on a replica keep load off the leader, and a few seconds of lag doesn't matter." },
+            { "text": "Showing the like count on a viral post", "bucket": "A replica is fine", "why": "An approximate count is fine for display." }
+          ],
+          "why": "Send a read to the leader only when staleness causes a visible bug: the user's own fresh writes, data just created, or reads that decide a write. Everything else can scale out on replicas."
+        },
+        {
+          "id": "split-brain",
+          "type": "choice",
+          "context": "The leader stops answering heartbeats. After a timeout, the cluster promotes the most up-to-date follower and points writes at it. But the old leader was only cut off by a network glitch, and some app servers are still writing to it.",
+          "prompt": "Two nodes now accept writes: **split brain**. What prevents it?",
+          "options": [
+            "Fence the old leader so its writes are rejected",
+            "Make all replication synchronous",
+            "Add more followers",
+            "Shorten the failover timeout"
+          ],
+          "answer": "Fence the old leader so its writes are rejected",
+          "why": "Failover is only safe once the old leader is shut out. Fencing does that: a leadership lease that expires, an epoch number that makes storage reject stale leaders, or powering the old node off (STONITH).",
+          "misconceptions": {
+            "Make all replication synchronous": "Synchronous replication prevents losing acknowledged writes, but two nodes can still each believe they're the leader.",
+            "Add more followers": "More followers don't change which nodes accept writes.",
+            "Shorten the failover timeout": "A shorter timeout triggers more false failovers when the leader is merely slow, which makes split brain *more* likely."
+          }
+        },
+        {
+          "id": "multi-leader-leaderless",
+          "type": "concept",
+          "title": "More than one writer",
+          "body": "**Multi-leader**: several nodes accept writes, often one per region, and sync with each other. Writes are fast, but concurrent edits **conflict** and must be merged.\n\n**Leaderless** (Dynamo-style, like Cassandra): each write goes to N replicas and succeeds after W acks; reads ask R replicas. If **W + R > N**, at least one replica you read has the latest write.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Model", "Who accepts writes", "Main headache"],
+            "rows": [
+              ["Leader–follower", "One leader", "Lag and failover"],
+              ["Multi-leader", "A leader per region", "Write conflicts"],
+              ["Leaderless", "Any replica, by quorum", "Stale reads when W + R ≤ N"]
+            ]
+          }
+        },
+        {
+          "id": "quorum-pick",
+          "type": "choice",
+          "prompt": "A leaderless store keeps N = 3 replicas of each key. Which settings guarantee that a read overlaps the latest successful write? Select all that apply.",
+          "options": ["W = 2, R = 2", "W = 3, R = 1", "W = 1, R = 2", "W = 1, R = 1"],
+          "answer": ["W = 2, R = 2", "W = 3, R = 1"],
+          "hint": "Compare W + R with N.",
+          "why": "Any W nodes and any R nodes out of N must share at least one node when W + R > N; both 2 + 2 and 3 + 1 make 4 > 3. W = 3 is fragile, though: a write fails if any replica is down, which is why W = R = 2 is the common choice.",
+          "misconceptions": {
+            "W = 1, R = 2": "1 + 2 = 3 equals N but doesn't exceed it: the single node that took the write can be exactly the one you skip.",
+            "W = 1, R = 1": "Fast, but a read can easily land on a replica the write never reached."
+          }
+        },
+        {
+          "id": "match-replication",
+          "type": "match",
+          "prompt": "Match each problem to its fix.",
+          "pairs": [
+            ["Users can't see a comment they just posted", "Read their own recent writes from the leader"],
+            ["Two nodes accept writes after a failover", "Fence the old leader"],
+            ["Reads outnumber writes 20 to 1", "Add read replicas"],
+            ["Users on three continents need fast writes", "Multi-leader, one leader per region"],
+            ["No acknowledged write may be lost on failover", "One synchronous follower"]
+          ],
+          "why": "Each replication choice fixes one problem and brings its own: replicas bring lag, failover risks split brain, multi-leader brings conflicts, and synchronous followers slow writes."
+        },
+        {
+          "id": "build-replicas",
+          "type": "build",
+          "context": "A recipe site serves 50K reads/sec but only 500 writes/sec. The same popular recipes are read over and over.",
+          "prompt": "Design the data path: scale reads without losing a single source of truth for writes.",
+          "palette": ["client", "dns", "lb", "app", "cache", "db_sql", "replica", "db_nosql", "queue"],
+          "start": { "nodes": [{ "id": "c", "type": "client", "x": 5, "y": 50 }], "edges": [] },
+          "rules": {
+            "nodes": [
+              { "type": "lb", "why": "Several app servers need one stable entry point that spreads requests and skips dead servers." },
+              { "type": "replica", "min": 1, "why": "Read replicas take the read load off the leader." }
+            ],
+            "edges": [
+              { "from": "app", "to": "db_sql", "why": "Writes go to the leader, the single source of truth." },
+              { "from": "app", "to": "replica", "why": "Reads go to replicas; that's where the read scaling comes from." },
+              { "from": "db_sql", "to": "replica", "why": "Replicas stay current by applying the leader's change log." },
+              { "from": "app", "to": "cache", "why": "Popular recipes repeat, so a cache serves them from memory before any database is touched." }
+            ],
+            "paths": [
+              { "through": ["client", "lb", "app"], "why": "Requests enter through the load balancer, never straight to one server." }
+            ],
+            "forbidden": [
+              { "from": "client", "to": "datastore", "why": "Clients never talk to a database directly: no auth, no validation, no connection pooling." }
+            ],
+            "connected": true,
+            "pass": 0.75
+          },
+          "solution": {
+            "nodes": [
+              { "id": "c", "type": "client", "x": 5, "y": 50 },
+              { "id": "lb", "type": "lb", "x": 22, "y": 50 },
+              { "id": "app", "type": "app", "x": 40, "y": 50 },
+              { "id": "cache", "type": "cache", "x": 62, "y": 15, "label": "Cache" },
+              { "id": "leader", "type": "db_sql", "x": 66, "y": 50, "label": "Leader" },
+              { "id": "rep", "type": "replica", "x": 90, "y": 82, "label": "Read replicas" }
+            ],
+            "edges": [
+              { "from": "c", "to": "lb" },
+              { "from": "lb", "to": "app" },
+              { "from": "app", "to": "cache" },
+              { "from": "app", "to": "leader" },
+              { "from": "app", "to": "rep" },
+              { "from": "leader", "to": "rep" }
+            ]
+          },
+          "why": "Writes funnel to one leader, so there's a single source of truth; reads fan out across a cache and replicas, which is where 99% of this traffic goes. Replica reads can lag, so a user's own fresh edits should still be read from the leader."
+        }
+      ]
+    },
+    {
+      "id": "sharding",
+      "title": "Sharding",
+      "summary": "Split data across machines: partitioning schemes, consistent hashing, shard keys, and what sharding costs.",
+      "minutes": 10,
+      "steps": [
+        {
+          "id": "pretest-why-not-replicas",
+          "type": "choice",
+          "context": "Your database holds 30 TB and takes 50K writes/sec at peak. One machine can't keep up with either.",
+          "prompt": "Why won't adding read replicas fix this?",
+          "options": [
+            "Every replica stores all 30 TB and applies every write",
+            "Replicas can't serve reads while the leader is busy",
+            "Replication lag makes replicas unusable at this size",
+            "Replication only works for SQL databases"
+          ],
+          "answer": "Every replica stores all 30 TB and applies every write",
+          "why": "Replication multiplies copies of the whole dataset, so each node still carries 100% of the data and 100% of the writes. To divide the load, you divide the data: shard it.",
+          "misconceptions": {
+            "Replicas can't serve reads while the leader is busy": "They can; serving reads is their main job. The problem here is storage and writes, which replicas copy rather than split.",
+            "Replication lag makes replicas unusable at this size": "Lag is real, but it isn't the blocker. Even a perfectly current replica must store all 30 TB and absorb all 50K writes/sec.",
+            "Replication only works for SQL databases": "Nearly every database replicates, SQL and NoSQL alike."
+          }
+        },
+        {
+          "id": "partitioning",
+          "type": "concept",
+          "title": "Splitting the data",
+          "body": "**Vertical partitioning** splits by table or column: profiles in one database, orders in another. **Horizontal partitioning**, or **sharding**, splits by row: every shard has the same schema but owns a slice of the keys.\n\nVertical splits buy some room. Sharding keeps scaling, because each shard stores and writes only its slice.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "Vertical partitioning", "points": ["Split by table or column", "Each database holds different data", "One huge table still hits a ceiling"] },
+            "right": { "title": "Horizontal (sharding)", "points": ["Split by row, same schema", "Each shard owns a range or hash of keys", "Writes and storage scale with shard count"] }
+          }
+        },
+        {
+          "id": "shard-count",
+          "type": "estimate",
+          "prompt": "How many shards do you need?",
+          "given": [
+            ["Total data", "30 TB"],
+            ["Data per shard (leaving headroom)", "2 TB"],
+            ["Peak writes", "50K/sec"],
+            ["Writes one shard handles comfortably", "5K/sec"]
+          ],
+          "answer": 15,
+          "unit": "shards",
+          "tolerance": 0.3,
+          "hint": "Work out the shards needed for storage and for writes separately.",
+          "solution": [
+            "Storage: 30 TB ÷ 2 TB = 15 shards",
+            "Writes: 50K ÷ 5K = 10 shards",
+            "Take the larger need: 15 shards (many teams round up to 16)"
+          ],
+          "why": "Shard count is set by whichever resource runs out first, here storage. Plan for growth too, because adding shards later means moving live data."
+        },
+        {
+          "id": "range-vs-hash",
+          "type": "concept",
+          "title": "Range or hash?",
+          "body": "**Range partitioning** gives each shard a contiguous key range (A–F, G–M…). Range scans are cheap, but sequential keys like timestamps pile onto the newest shard.\n\n**Hash partitioning** sends each key to shard `hash(key) mod N`. Load spreads evenly, but a range query has to ask every shard.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Property", "Range", "Hash"],
+            "rows": [
+              ["Range scans", "Cheap: one or a few shards", "Ask every shard"],
+              ["Load spread", "Hotspots on sequential keys", "Even"],
+              ["Used by", "HBase, Bigtable", "Cassandra, DynamoDB"]
+            ]
+          }
+        },
+        {
+          "id": "mod-n-move",
+          "type": "choice",
+          "prompt": "With `hash(key) mod N`, you grow from 4 shards to 5. Roughly what share of keys must move to a different shard?",
+          "options": ["About 20%", "About 80%", "Exactly 25%", "None: only new keys use the new shard"],
+          "answer": "About 80%",
+          "hint": "A key stays only if its remainder mod 4 equals its remainder mod 5.",
+          "why": "A key stays put only if `hash mod 4` equals `hash mod 5`, which holds for just 4 of every 20 hash values. Moving 80% of your data to add one shard is why real systems use consistent hashing.",
+          "misconceptions": {
+            "About 20%": "That's the ideal: the new shard's fair share. Mod N moves far more, because changing N changes almost every key's remainder.",
+            "Exactly 25%": "One in four is each shard's share *before* the change, not how many keys move.",
+            "None: only new keys use the new shard": "Existing keys' remainders change when N changes, so their lookups go to the wrong shard unless the data moves."
+          }
+        },
+        {
+          "id": "consistent-hashing",
+          "type": "concept",
+          "title": "Consistent hashing",
+          "body": "**Consistent hashing** puts shards and keys on a ring of hash values; each key belongs to the next shard clockwise. Adding a shard moves only the keys it takes over, about 1/N of the data.\n\nEach machine gets many **virtual nodes** around the ring, which evens out load and spreads a dead machine's keys across all the others.",
+          "visual": {
+            "kind": "bars",
+            "unit": "% of keys moved",
+            "items": [
+              { "label": "hash mod N, 4 → 5 shards", "value": 80 },
+              { "label": "Consistent hashing, 4 → 5 shards", "value": 20 }
+            ]
+          }
+        },
+        {
+          "id": "shard-key-sort",
+          "type": "sort",
+          "context": "1M sensors each send a reading every 10 seconds. The main query: \"readings for device X over the last 24 hours.\"",
+          "prompt": "Good or bad shard key for the readings table?",
+          "buckets": ["Good shard key", "Bad shard key"],
+          "items": [
+            { "text": "device_id (hashed)", "bucket": "Good shard key", "why": "A million distinct values spread writes evenly, and each device's readings sit on one shard for the main query." },
+            { "text": "(device_id, day) compound key", "bucket": "Good shard key", "why": "Keeps a device's day together, so the 24-hour query touches at most two partitions, and caps how big any partition grows." },
+            { "text": "Timestamp (range partitioned)", "bucket": "Bad shard key", "why": "Every reading being written now lands in the newest range: one shard takes all the writes." },
+            { "text": "Sensor type (temperature, humidity, pressure)", "bucket": "Bad shard key", "why": "Three values can feed at most three shards, however many you buy." },
+            { "text": "Region (5 regions)", "bucket": "Bad shard key", "why": "Low cardinality, and the busiest region becomes a permanent hot shard." },
+            { "text": "Random UUID per reading", "bucket": "Bad shard key", "why": "Writes spread perfectly, but \"device X's last 24 hours\" now has to ask every shard." }
+          ],
+          "why": "A good shard key has many distinct values, spreads load evenly, and keeps your most common query on a single shard."
+        },
+        {
+          "id": "sharding-costs",
+          "type": "concept",
+          "title": "What sharding costs",
+          "body": "Even a good key can be skewed: one celebrity's data can melt its shard while others idle. Queries without the shard key must **scatter** to every shard and **gather** the results. Joins and transactions across shards get hard, and **resharding** means moving live data.\n\nSo shard late, and pick a key that keeps most queries on one shard.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Pain", "Usual mitigation"],
+            "rows": [
+              ["Hot key (celebrity)", "Cache it, add replicas, or salt the key"],
+              ["Query without the shard key", "Scatter-gather, or a secondary index"],
+              ["Cross-shard join", "Denormalize; co-locate related rows"],
+              ["Resharding", "Consistent hashing; many small virtual shards"]
+            ]
+          }
+        },
+        {
+          "id": "hot-key",
+          "type": "choice",
+          "context": "A celebrity with 100M followers posts. Their shard hits 100% CPU serving reads while the other shards sit near 10%.",
+          "prompt": "What's the best fix?",
+          "options": [
+            "Cache the celebrity's posts and serve reads from the cache",
+            "Add more shards",
+            "Switch from hash to range partitioning",
+            "Re-shard by post timestamp"
+          ],
+          "answer": "Cache the celebrity's posts and serve reads from the cache",
+          "why": "A hot key is a single key, so repartitioning can't split it. Absorb its reads with a cache or extra replicas; if writes are the problem, salt the key (`user#0` … `user#9`) to spread them across shards.",
+          "misconceptions": {
+            "Add more shards": "The hot key still maps to exactly one shard. More shards just add idle machines.",
+            "Switch from hash to range partitioning": "The celebrity's key still lives in one place under any partitioning scheme.",
+            "Re-shard by post timestamp": "That trades one hotspot for another: every new post would land on the newest shard."
+          }
+        },
+        {
+          "id": "chat-shard-key",
+          "type": "text",
+          "context": "A chat app stores billions of messages in 1:1 and group conversations. The hottest query: \"load the latest 50 messages in this conversation.\"",
+          "prompt": "Pick a shard key for the messages table and justify it.",
+          "concepts": [
+            { "label": "Shard by conversation ID", "any": ["conversation id", "chat id", "channel id", "room id", "thread id", "shard by conversation"] },
+            { "label": "A conversation's messages live on one shard", "any": ["re:\\b(one|single|same)[ -](shard|partition|node|server|channel|conversation|chat)\\b", "co-locat*", "scatter*", "together", "fan out"] },
+            { "label": "Many distinct values spread load evenly", "any": ["high cardinality", "evenly", "even distribution", "spread*", "uniform*", "balanc*"] },
+            { "label": "Plans for huge or hot conversations", "any": ["hot*", "large group*", "big group*", "busy", "bucket*", "salt*"] }
+          ],
+          "pass": 3,
+          "model": "Shard by conversation_id, hashed. The hot query reads one conversation, so all of its messages live on the same shard and the query never scatters to every shard. There are millions of conversations, so hashing spreads load evenly. A huge, busy group chat could still become a hot partition, so I'd add a time bucket to the key, as Discord does with (channel_id, bucket), to cap partition size.",
+          "why": "Shard on what your hottest query filters by, as long as it has many distinct values. Sharding by user_id would scatter a group chat across many shards, and sharding by timestamp would send every new message to one shard."
+        }
+      ]
+    },
+    {
+      "id": "consistency-cap",
+      "title": "Consistency and CAP",
+      "summary": "What reads are allowed to return, what partitions force you to give up, and how to choose per feature.",
+      "minutes": 9,
+      "steps": [
+        {
+          "id": "pretest-stale-profile",
+          "type": "choice",
+          "context": "You change your profile photo and refresh. You still see the old photo. A friend refreshing a second later sees the new one.",
+          "prompt": "What most likely happened?",
+          "options": [
+            "Your read hit a replica that hadn't applied the write yet",
+            "The write was lost and then retried",
+            "The database is corrupted"
+          ],
+          "answer": "Your read hit a replica that hadn't applied the write yet",
+          "why": "With asynchronous replicas, a read can be briefly stale. That's **eventual consistency**: replicas converge, but not instantly. Seeing your *own* change disappear breaks a guarantee called **read-your-writes**.",
+          "misconceptions": {
+            "The write was lost and then retried": "A lost write wouldn't show up for your friend a second later either.",
+            "The database is corrupted": "Corruption doesn't fix itself a second later. Brief staleness that clears on its own is the signature of replication lag."
+          }
+        },
+        {
+          "id": "consistency-models",
+          "type": "concept",
+          "title": "Consistency models",
+          "body": "A **consistency model** is a promise about what reads may return. **Linearizable** (strong): every read sees the latest write, as if there were one copy. **Eventual**: replicas converge once writes stop, but reads may be stale meanwhile.\n\nIn between sit cheaper guarantees: **causal**, **read-your-writes**, and **monotonic reads**.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Model", "Promise", "Violated when…"],
+            "rows": [
+              ["Linearizable", "Every read sees the latest write", "Any stale read"],
+              ["Causal", "Causes are seen before effects", "A reply shows up before its question"],
+              ["Read-your-writes", "You always see your own writes", "Your new post vanishes on refresh"],
+              ["Monotonic reads", "Time never goes backwards for you", "A comment appears, then disappears"],
+              ["Eventual", "Replicas converge eventually", "Replicas never converge"]
+            ]
+          }
+        },
+        {
+          "id": "cheapest-guarantee",
+          "type": "choice",
+          "context": "Alice comments on a post. Bob refreshes and sees her comment. He refreshes again, a more-lagged replica answers, and the comment is gone.",
+          "prompt": "What is the *cheapest* guarantee that prevents this?",
+          "options": ["Monotonic reads", "Read-your-writes", "Linearizability", "Eventual consistency"],
+          "answer": "Monotonic reads",
+          "why": "Monotonic reads promises a user never sees older data after newer data. A cheap way to get it is to route each user to the same replica, for example by hashing the user ID.",
+          "misconceptions": {
+            "Read-your-writes": "Read-your-writes protects *your own* writes. Bob is reading Alice's comment; his problem is seeing time go backwards.",
+            "Linearizability": "It would prevent this, but it's far stronger than needed and costs latency on every read. Monotonic reads is enough.",
+            "Eventual consistency": "This *is* eventual consistency: it's the weak guarantee that allowed the anomaly."
+          }
+        },
+        {
+          "id": "cap-theorem",
+          "type": "concept",
+          "title": "CAP, stated correctly",
+          "body": "Networks **partition**: links fail and nodes can't reach each other. During a partition, a replicated system must choose: refuse some requests to stay **consistent** (linearizable), or answer them all and risk stale or conflicting data to stay **available**.\n\nWith no partition, you can have both. \"Pick two of three\" misleads: partitions aren't optional.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "CP during a partition", "points": ["Nodes cut off from the majority refuse requests", "Nobody sees stale or conflicting data", "e.g., ZooKeeper, etcd, HBase"] },
+            "right": { "title": "AP during a partition", "points": ["Every node keeps answering", "Reads may be stale; writes may conflict", "e.g., Cassandra, Riak, CouchDB"] }
+          }
+        },
+        {
+          "id": "cp-vs-ap",
+          "type": "choice",
+          "context": "A partition splits a 5-node cluster into groups of 3 and 2. A client connected to the 2-node side sends a write. System A is CP; system B is AP.",
+          "prompt": "What happens?",
+          "options": [
+            "A rejects the write; B accepts it and reconciles after the partition heals",
+            "A accepts the write; B rejects it",
+            "Both accept it, and both stay linearizable",
+            "Both reject it until the partition heals"
+          ],
+          "answer": "A rejects the write; B accepts it and reconciles after the partition heals",
+          "why": "The 2-node side can't reach a majority. CP refuses rather than risk two divergent histories; AP accepts and must reconcile conflicting writes later, with last-write-wins, merges, or CRDTs.",
+          "misconceptions": {
+            "A accepts the write; B rejects it": "Reversed. Consistency means refusing what you can't coordinate; availability means answering anyway.",
+            "Both accept it, and both stay linearizable": "That's exactly what CAP rules out: the 2-node side can't know what the 3-node side accepted meanwhile.",
+            "Both reject it until the partition heals": "An AP system's whole point is to keep answering on both sides of a partition."
+          }
+        },
+        {
+          "id": "merge-counters",
+          "type": "choice",
+          "context": "Like counts live in an AP store. During a partition, the US side records 120 new likes on a post and the EU side records 80. Both started from 1,000.",
+          "prompt": "After the partition heals, how should the replicas merge?",
+          "options": [
+            "Keep a count per replica and sum them: 1,200",
+            "Last write wins: 1,120 or 1,080, whichever side wrote last",
+            "Average the two sides: 1,100",
+            "Keep the higher value: 1,120"
+          ],
+          "answer": "Keep a count per replica and sum them: 1,200",
+          "why": "Increments can be merged without loss: each replica counts its own increments, and the total is their sum. That's the idea behind a counter **CRDT**.",
+          "misconceptions": {
+            "Last write wins: 1,120 or 1,080, whichever side wrote last": "Last-write-wins silently throws away one side's likes. It suits overwrites like a display name, not counters.",
+            "Average the two sides: 1,100": "Averaging loses 100 likes that really happened.",
+            "Keep the higher value: 1,120": "The EU side's 80 likes would vanish."
+          }
+        },
+        {
+          "id": "pacelc",
+          "type": "concept",
+          "title": "PACELC: the everyday trade-off",
+          "body": "CAP only covers partitions, which are rare. **PACELC** adds the rest of the time: if **P**artitioned, choose **A**vailability or **C**onsistency; **E**lse, choose **L**atency or **C**onsistency.\n\nEven on a healthy network, a strongly consistent write must wait for replicas to agree, often across regions, while an eventually consistent one returns at once.",
+          "visual": {
+            "kind": "table",
+            "columns": ["System (default settings)", "If partitioned", "Else"],
+            "rows": [
+              ["Cassandra, Riak, DynamoDB", "Availability", "Latency"],
+              ["HBase, Bigtable, Spanner", "Consistency", "Consistency"]
+            ]
+          }
+        },
+        {
+          "id": "cap-fill",
+          "type": "fill",
+          "text": "During a network [[partition]], a node that can't reach its peers must either refuse requests, keeping [[consistency]], or answer them, keeping [[availability]]. With no partition, PACELC says the trade-off is consistency versus [[latency]], because waiting for replicas to agree takes time.",
+          "bank": ["partition", "consistency", "availability", "latency", "durability", "throughput"],
+          "why": "CAP describes behavior during a partition only. PACELC reminds you that strong consistency costs latency on every request, even when the network is fine."
+        },
+        {
+          "id": "per-feature",
+          "type": "concept",
+          "title": "Choose per feature",
+          "body": "One product needs several consistency levels. Ask what breaks if a read is a second stale. Money moved twice, or one seat sold to two people? You need **strong** consistency. A like count off by three? **Eventual** is fine.\n\nMost screens sit in between: users must never see their own changes vanish, or time run backwards.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "Needs strong", "points": ["Account balances and transfers", "Selling the last unit of stock", "Claiming a unique username", "Locks and leader election"] },
+            "right": { "title": "Eventual is fine", "points": ["Like and view counts", "Recommendations", "Search indexes", "Analytics dashboards"] }
+          }
+        },
+        {
+          "id": "match-feature-level",
+          "type": "match",
+          "prompt": "Match each feature to the weakest consistency level that keeps it correct.",
+          "pairs": [
+            ["Transferring money between accounts", "Linearizable (strong)"],
+            ["View count on a video", "Eventual"],
+            ["Your profile page right after you edit it", "Read-your-writes"],
+            ["Replies in a comment thread", "Causal"],
+            ["Scrolling a feed without posts disappearing", "Monotonic reads"]
+          ],
+          "why": "Pay for strong consistency only where a stale read causes real damage. Session guarantees like read-your-writes and monotonic reads fix most user-visible glitches far more cheaply."
+        }
+      ]
+    },
+    {
+      "id": "distributed-transactions",
+      "title": "Transactions across services",
+      "summary": "When one transaction spans several services: two-phase commit, sagas, the outbox, and idempotent consumers.",
+      "minutes": 10,
+      "steps": [
+        {
+          "id": "pretest-timeout",
+          "type": "choice",
+          "context": "Checkout calls the Payments service to charge the card, then the Inventory service to reserve the item. The charge succeeds. The inventory call times out.",
+          "prompt": "What state is the order in?",
+          "options": [
+            "Unknown: the item may or may not be reserved, and the card is charged either way",
+            "Safe: the database rolls back the charge automatically",
+            "Failed cleanly: a timeout means the reservation didn't happen",
+            "Safe: the load balancer retries the call for you"
+          ],
+          "answer": "Unknown: the item may or may not be reserved, and the card is charged either way",
+          "why": "Across services there's no shared transaction, and a timeout is ambiguous. You need a protocol that either completes every step or explicitly undoes the ones that ran.",
+          "misconceptions": {
+            "Safe: the database rolls back the charge automatically": "Each service has its own database. No transaction spans both, so nothing rolls back the charge for you.",
+            "Failed cleanly: a timeout means the reservation didn't happen": "A timeout only means no reply arrived. The reservation may have succeeded and the response got lost.",
+            "Safe: the load balancer retries the call for you": "Blind retries of a non-idempotent call can reserve twice, and they never undo the charge if the item is truly out of stock."
+          }
+        },
+        {
+          "id": "acid",
+          "type": "concept",
+          "title": "ACID stops at the service boundary",
+          "body": "Inside one database, a transaction is **atomic** (all or nothing), **consistent** (rules like \"balance ≥ 0\" hold), **isolated** (concurrent transactions don't see each other's half-done work), and **durable** (committed data survives crashes).\n\nSpread the data over services with separate databases, and no single engine can promise that across them.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "One database", "points": ["BEGIN … COMMIT covers every write", "The engine rolls back on failure", "Locks provide isolation"] },
+            "right": { "title": "Several services", "points": ["Each service commits on its own", "Nothing undoes a step that already committed", "The network can fail between any two steps"] }
+          }
+        },
+        {
+          "id": "acid-match",
+          "type": "match",
+          "prompt": "Which ACID property prevents each failure?",
+          "pairs": [
+            ["A crash between the debit and the credit leaves money missing", "Atomicity"],
+            ["Two concurrent transfers both read the same old balance", "Isolation"],
+            ["A committed order vanishes after a power cut", "Durability"],
+            ["A transfer leaves an account below its allowed minimum", "Consistency"]
+          ],
+          "why": "Atomicity handles partial failure, isolation handles concurrency, durability handles crashes after commit, and consistency is the application's invariants, which the other three help protect."
+        },
+        {
+          "id": "two-phase-commit",
+          "type": "concept",
+          "title": "Two-phase commit",
+          "body": "**2PC** commits across several databases atomically. A **coordinator** asks every participant to **prepare**: write everything durably, hold its locks, and vote. If all vote yes, it logs the decision and tells everyone to **commit**; any no means **abort**.\n\nThe catch: a participant that voted yes can't decide alone. If the coordinator dies, it waits, locks held.",
+          "visual": {
+            "kind": "flow",
+            "steps": ["Coordinator: prepare?", "Participants lock, write, vote", "All yes: coordinator logs commit", "Participants commit, release locks"]
+          }
+        },
+        {
+          "id": "coordinator-crash",
+          "type": "choice",
+          "prompt": "In 2PC, every participant voted yes. Then the coordinator crashed before sending its decision. What can a participant safely do?",
+          "options": [
+            "Wait, holding its locks, until the coordinator recovers",
+            "Commit on its own, since it voted yes",
+            "Abort on its own after a timeout",
+            "Ask the client what to do"
+          ],
+          "answer": "Wait, holding its locks, until the coordinator recovers",
+          "why": "A yes vote is a promise to commit if told to, so a prepared participant is stuck \"in doubt\" with its locks held. That blocking, plus the cost of holding locks across services, is why 2PC is rare between microservices.",
+          "misconceptions": {
+            "Commit on its own, since it voted yes": "It knows only its own vote. Another participant may have voted no, so the decision could be abort.",
+            "Abort on its own after a timeout": "The coordinator may already have told another participant to commit. Aborting alone breaks atomicity.",
+            "Ask the client what to do": "The client doesn't know the decision either; only the coordinator's log does."
+          }
+        },
+        {
+          "id": "saga",
+          "type": "concept",
+          "title": "Sagas",
+          "body": "A **saga** splits one business transaction into a sequence of local transactions, one per service, each committed on its own. If a step fails, the saga runs **compensating actions** for the steps that already succeeded, in reverse order: refund the payment, release the stock.\n\nNo locks span services, but others can see the in-between states.",
+          "visual": {
+            "kind": "flow",
+            "steps": ["Create order (pending)", "Reserve stock ✓", "Charge card ✗", "Release stock", "Cancel order"]
+          }
+        },
+        {
+          "id": "travel-saga",
+          "type": "order",
+          "context": "A trip-booking saga books a flight, then a hotel, then a rental car. The car step fails: no cars left.",
+          "prompt": "Put everything that happens in order.",
+          "items": [
+            "Book the flight",
+            "Book the hotel",
+            "Car booking fails",
+            "Cancel the hotel booking",
+            "Cancel the flight booking",
+            "Mark the trip failed and notify the traveler"
+          ],
+          "why": "Steps commit one at a time; when one fails, compensations undo the completed steps in reverse. The failed car step committed nothing, so it needs no compensation."
+        },
+        {
+          "id": "orchestration",
+          "type": "choice",
+          "context": "Sagas run two ways. **Choreography**: each service reacts to the others' events (`FlightBooked` triggers the hotel service), with no central controller. **Orchestration**: one orchestrator tells each service what to do and tracks the saga's state.",
+          "prompt": "Your seven-step order saga fails in ways nobody can trace. Which approach helps most?",
+          "options": [
+            "Orchestration: one place defines the sequence and tracks each saga's state",
+            "Choreography: fewer components means fewer failures",
+            "Two-phase commit across all seven services",
+            "Retry every step until it succeeds"
+          ],
+          "answer": "Orchestration: one place defines the sequence and tracks each saga's state",
+          "why": "Choreography suits short sagas with few participants. As a saga grows, an orchestrator, often a workflow engine like Temporal or AWS Step Functions, makes the sequence explicit, observable, and easier to change.",
+          "misconceptions": {
+            "Choreography: fewer components means fewer failures": "Fewer boxes, but the flow is scattered across event handlers in seven services, which is exactly what makes it hard to trace.",
+            "Two-phase commit across all seven services": "Holding locks across seven services for the whole flow multiplies 2PC's blocking problem.",
+            "Retry every step until it succeeds": "Some failures are permanent, like a declined card. Retrying forever never compensates the steps that already ran."
+          }
+        },
+        {
+          "id": "outbox",
+          "type": "concept",
+          "title": "The transactional outbox",
+          "body": "A service saves an order, then publishes `OrderPlaced` to a broker. Crash between the two and they disagree: a **dual write**. The **outbox** fixes it: insert the event into an `outbox` table in the **same local transaction** as the order. A relay publishes outbox rows; after a crash it may resend, so consumers must be **idempotent**.",
+          "visual": {
+            "kind": "diagram",
+            "nodes": [
+              { "id": "svc", "type": "service", "x": 10, "y": 50, "label": "Order service" },
+              { "id": "db", "type": "db_sql", "x": 38, "y": 50, "label": "orders + outbox" },
+              { "id": "relay", "type": "worker", "x": 64, "y": 50, "label": "Outbox relay" },
+              { "id": "broker", "type": "queue", "x": 90, "y": 25, "label": "Broker" },
+              { "id": "consumer", "type": "service", "x": 90, "y": 80, "label": "Consumers" }
+            ],
+            "edges": [
+              ["svc", "db", "one transaction"],
+              ["db", "relay", "poll new rows"],
+              ["relay", "broker", "publish"],
+              ["broker", "consumer", "deliver"]
+            ]
+          }
+        },
+        {
+          "id": "outbox-fill",
+          "type": "fill",
+          "text": "Writing to the database and then the broker separately is a [[dual write]]: a crash in between loses or invents events. With an outbox, the order and its event commit in [[one local transaction]]. The relay may publish a row twice after a crash, so delivery is [[at-least-once]], and consumers must be [[idempotent]], for example by recording processed [[event IDs]] and skipping repeats.",
+          "bank": ["dual write", "one local transaction", "at-least-once", "idempotent", "event IDs", "exactly-once", "two-phase commit", "stateless"],
+          "why": "The outbox turns two writes into one local commit, and the relay retries until the broker has the event. Retries mean duplicates, and idempotent consumers make duplicates harmless."
+        }
+      ]
+    },
+    {
+      "id": "unique-ids",
+      "title": "Unique IDs at scale",
+      "summary": "Auto-increment, UUIDs, Snowflake IDs, and ticket servers: generating IDs on many machines at once.",
+      "minutes": 8,
+      "steps": [
+        {
+          "id": "pretest-auto-increment",
+          "type": "choice",
+          "prompt": "You split your users table across 8 shards, each with its own `AUTO_INCREMENT` counter. What breaks?",
+          "options": [
+            "Different shards hand out the same IDs",
+            "Inserts get slower than on one database",
+            "IDs run out sooner",
+            "Nothing: each shard is independent"
+          ],
+          "answer": "Different shards hand out the same IDs",
+          "why": "Auto-increment is unique only inside one database. You can patch it (MySQL's `auto_increment_increment` and `auto_increment_offset` give shard k the IDs k, k+8, k+16…), but most systems switch to an ID scheme built for many machines.",
+          "misconceptions": {
+            "Nothing: each shard is independent": "Each shard counts 1, 2, 3… on its own, so user 42 exists eight times. Every URL, cache key, and foreign key that says \"user 42\" becomes ambiguous.",
+            "Inserts get slower than on one database": "Each shard's counter is local and fast. Speed isn't the issue; uniqueness is.",
+            "IDs run out sooner": "A 64-bit counter won't run out. The problem is that eight counters overlap."
+          }
+        },
+        {
+          "id": "good-ids",
+          "type": "concept",
+          "title": "What a good ID needs",
+          "body": "A single database's **auto-increment** is simple and ordered, but every insert in the system must go through it: a bottleneck and a single point of failure.\n\nAt scale you want IDs that are **unique** across machines, generated **locally**, **compact** (64 bits fits a `BIGINT`), and **roughly time-sorted**, so new rows append to the end of the index.",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "Unique", "label": "across every machine" },
+              { "value": "Local", "label": "no round trip per ID" },
+              { "value": "64-bit", "label": "fits a BIGINT" },
+              { "value": "Sortable", "label": "roughly by creation time" }
+            ]
+          }
+        },
+        {
+          "id": "uuid-index",
+          "type": "choice",
+          "context": "A **UUIDv4** is 128 bits, 122 of them random. Any server can generate one with no coordination.",
+          "prompt": "A team switches a large MySQL (InnoDB) table's primary key from auto-increment to UUIDv4. Inserts get much slower. Why?",
+          "options": [
+            "Random keys insert all over the B-tree index, causing page splits and cache misses",
+            "Generating each UUID needs a network call",
+            "UUIDs collide often at this scale",
+            "128-bit values can't be indexed"
+          ],
+          "answer": "Random keys insert all over the B-tree index, causing page splits and cache misses",
+          "why": "InnoDB stores rows in primary-key order. Sequential keys append to the last page, which stays in memory; random keys hit pages all over the index, so pages split and the working set outgrows RAM. Time-ordered IDs, like Snowflake or UUIDv7 (which starts with a millisecond timestamp), avoid this.",
+          "misconceptions": {
+            "Generating each UUID needs a network call": "UUIDv4 is generated locally from random bits; avoiding coordination is its whole appeal.",
+            "UUIDs collide often at this scale": "You'd need about a billion UUIDs a second for roughly 85 years to reach even a 50% chance of one collision.",
+            "128-bit values can't be indexed": "They index fine. The problem is *where* each new key lands in the index."
+          }
+        },
+        {
+          "id": "snowflake",
+          "type": "concept",
+          "title": "Snowflake IDs",
+          "body": "Twitter's **Snowflake** packs a 64-bit integer: a **41-bit timestamp** in milliseconds since a custom epoch (about 69 years of range), a **10-bit machine ID** (1,024 generators), and a **12-bit sequence** counting IDs within one millisecond, plus an unused sign bit. Each machine generates IDs locally, and sorting by ID roughly sorts by creation time.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "UUIDv4", "points": ["128 bits, 122 of them random", "No coordination at all", "Random order: scattered index inserts", "Can be made anywhere, even offline"] },
+            "right": { "title": "Snowflake", "points": ["64 bits: fits a BIGINT", "Each generator needs a unique machine ID", "Roughly time-ordered: appends to the index", "Depends on a well-behaved clock"] }
+          }
+        },
+        {
+          "id": "snowflake-throughput",
+          "type": "estimate",
+          "prompt": "What's the most IDs one Snowflake generator can issue per second?",
+          "given": [
+            ["Sequence field", "12 bits (resets every millisecond)"],
+            ["Milliseconds per second", "1,000"]
+          ],
+          "answer": 4096000,
+          "unit": "IDs/sec",
+          "tolerance": 0.3,
+          "hint": "How many values fit in 12 bits?",
+          "solution": [
+            "2^12 = 4,096 IDs per millisecond",
+            "4,096 × 1,000 ms = 4,096,000 ≈ 4M IDs per second, per machine"
+          ],
+          "why": "The sequence caps how many IDs fit in one millisecond; if it runs out, the generator waits for the next millisecond. Roughly 4M per second per machine is far more than most services need."
+        },
+        {
+          "id": "ticket-servers",
+          "type": "concept",
+          "title": "Ticket servers and ranges",
+          "body": "A **ticket server** is a database whose only job is issuing auto-increment numbers. Flickr ran two, one issuing odd IDs and one even, so losing either wasn't fatal.\n\nTo skip a round trip per ID, app servers can lease a **range**, say 1,000 IDs at a time, and hand them out from memory. IDs stay unique but only roughly ordered.",
+          "visual": {
+            "kind": "flow",
+            "steps": ["App server starts", "Lease IDs 5,001–6,000", "Hand them out from memory", "Range used up: lease the next"]
+          }
+        },
+        {
+          "id": "clock-skew",
+          "type": "choice",
+          "context": "NTP corrects a Snowflake generator's clock, moving it back 5 ms.",
+          "prompt": "What should the generator do?",
+          "options": [
+            "Refuse to issue IDs until its clock passes the last timestamp it used",
+            "Keep going: the sequence number keeps IDs unique",
+            "Reset the sequence to zero and continue",
+            "Pick a new random machine ID"
+          ],
+          "answer": "Refuse to issue IDs until its clock passes the last timestamp it used",
+          "why": "Snowflake remembers the last timestamp it used and won't generate while the clock is behind it. Skew *between* machines doesn't break uniqueness; it only makes cross-machine order approximate, which is why IDs are roughly, not exactly, time-sorted.",
+          "misconceptions": {
+            "Keep going: the sequence number keeps IDs unique": "The sequence restarts every millisecond, so replaying those same 5 ms can produce IDs it already issued.",
+            "Reset the sequence to zero and continue": "Same timestamp, same machine, sequence 0 again: that's exactly how duplicates happen.",
+            "Pick a new random machine ID": "It could collide with another live generator's ID. Machine IDs are assigned, not guessed."
+          }
+        },
+        {
+          "id": "match-id-schemes",
+          "type": "match",
+          "prompt": "Match each ID scheme to its trade-off.",
+          "pairs": [
+            ["Auto-increment in one database", "Simple and ordered, but a bottleneck and single point of failure"],
+            ["UUIDv4", "No coordination, but 128 bits and random index inserts"],
+            ["UUIDv7", "128 bits, but time-ordered so inserts append"],
+            ["Snowflake", "64-bit and roughly time-sorted, but needs unique machine IDs"],
+            ["Ticket server with leased ranges", "A central counter, contacted once per batch"]
+          ],
+          "why": "Every scheme trades coordination, size, and ordering. Index locality pushes you toward time-ordered IDs; creating IDs with no server at hand pushes you toward UUIDs."
+        },
+        {
+          "id": "offline-ids",
+          "type": "choice",
+          "context": "A notes app lets people create notes on their phones while offline, syncing to the server later.",
+          "prompt": "Which ID scheme fits?",
+          "options": [
+            "UUIDs generated on the device",
+            "Snowflake, with each phone as a machine",
+            "Auto-increment from the server's database",
+            "Leased ranges from a ticket server"
+          ],
+          "answer": "UUIDs generated on the device",
+          "why": "Offline creation rules out anything that needs a server round trip or an assigned machine ID. With 122 random bits, UUIDs need no coordination at all, and UUIDv7 keeps them roughly time-ordered too.",
+          "misconceptions": {
+            "Snowflake, with each phone as a machine": "10 bits allow only 1,024 machine IDs. Millions of phones can't each get a unique one.",
+            "Auto-increment from the server's database": "The phone is offline; it can't ask the server for an ID until it syncs.",
+            "Leased ranges from a ticket server": "It can work if every device leases a range while online, but a brand-new device has none, and you're managing millions of leases."
+          }
+        }
+      ]
+    }
+  ]
+}

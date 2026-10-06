@@ -1,0 +1,573 @@
+{
+  "id": "estimation",
+  "title": "Back-of-the-envelope estimation",
+  "description": "Turn users into requests, bytes, and machines with round numbers you can do in your head.",
+  "lessons": [
+    {
+      "id": "numbers-to-know",
+      "title": "Numbers to keep in your head",
+      "summary": "Powers of two, byte units, seconds per day, and the sizes of everyday data.",
+      "minutes": 7,
+      "steps": [
+        {
+          "id": "pretest-2-30",
+          "type": "choice",
+          "prompt": "Roughly how many bytes is 2^30 bytes?",
+          "options": ["About 1 million (1 MB)", "About 1 billion (1 GB)", "About 1 trillion (1 TB)", "About 30 thousand"],
+          "answer": "About 1 billion (1 GB)",
+          "why": "Every factor of 2^10 (1,024) is about ×1,000, so 2^30 = (2^10)^3 ≈ 1,000^3 = 1 billion. The exact value is 1,073,741,824.",
+          "misconceptions": {
+            "About 1 million (1 MB)": "That's 2^20. Each extra 10 in the exponent adds three zeros: 2^10 ≈ 10^3, 2^20 ≈ 10^6, 2^30 ≈ 10^9.",
+            "About 1 trillion (1 TB)": "That's 2^40, one step of 2^10 too far.",
+            "About 30 thousand": "The exponent counts doublings: 2 multiplied by itself 30 times, not 30 × 1,000."
+          }
+        },
+        {
+          "id": "powers-of-two",
+          "type": "concept",
+          "title": "Powers of two ≈ powers of ten",
+          "body": "2^10 is 1,024: close enough to 1,000. So every +10 in the exponent adds three zeros, and 2^30 bytes ≈ 1 billion bytes ≈ 1 GB. The error stays under ~13% all the way to petabytes, which is far below the precision of an estimate.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Power", "Exact", "≈", "Unit"],
+            "rows": [
+              ["2^10", "1,024", "1 thousand", "KB"],
+              ["2^20", "1,048,576", "1 million", "MB"],
+              ["2^30", "1,073,741,824", "1 billion", "GB"],
+              ["2^40", "≈ 1.10 × 10^12", "1 trillion", "TB"],
+              ["2^50", "≈ 1.13 × 10^15", "1 quadrillion", "PB"]
+            ]
+          }
+        },
+        {
+          "id": "unit-ladder",
+          "type": "match",
+          "prompt": "Match each unit to its size in bytes (estimate-level precision).",
+          "pairs": [
+            ["KB", "10^3 bytes (a thousand)"],
+            ["MB", "10^6 bytes (a million)"],
+            ["GB", "10^9 bytes (a billion)"],
+            ["TB", "10^12 bytes (a trillion)"],
+            ["PB", "10^15 bytes (a quadrillion)"]
+          ],
+          "why": "Each unit is 1,000× the one before, so moving one rung changes the exponent by 3. That's what lets you convert 5 × 10^12 bytes to 5 TB at a glance."
+        },
+        {
+          "id": "seconds-per-day",
+          "type": "concept",
+          "title": "A day is about 100K seconds",
+          "body": "A day has 86,400 seconds. Round it to **100K** and turning a daily total into a per-second rate is just dropping five zeros. The rounding makes rates about 14% low, which is noise next to the 2–3× peak factor you'll apply later.",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "86,400", "label": "seconds in a day (24 × 60 × 60)" },
+              { "value": "≈ 100K", "label": "what we use for estimates" },
+              { "value": "1M/day ≈ 10/s", "label": "the handiest conversion" }
+            ]
+          }
+        },
+        {
+          "id": "per-second-fill",
+          "type": "fill",
+          "text": "Dividing by 100K seconds: 1 billion requests a day is about [[10K]] per second, and 50 million a day is about [[500]] per second. Going the other way, 2,000 requests per second is about [[200M]] a day.",
+          "bank": ["10K", "500", "200M", "1K", "50", "20M"],
+          "why": "Per day → per second divides by 10^5; per second → per day multiplies by 10^5. 1B ÷ 100K = 10K, 50M ÷ 100K = 500, and 2,000 × 100K = 200M."
+        },
+        {
+          "id": "typical-sizes",
+          "type": "concept",
+          "title": "Sizes of everyday data",
+          "body": "Most estimates multiply a count by a size, so memorize a few anchors. They're rough: real rows add indexes and overhead, and media size depends heavily on resolution and compression. Text is bytes, photos are hundreds of KB, video is tens of MB per minute.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Thing", "Approx. size"],
+            "rows": [
+              ["ASCII character", "1 byte"],
+              ["int64 / timestamp", "8 bytes"],
+              ["UUID (binary)", "16 bytes"],
+              ["Short text post + metadata", "~300 bytes"],
+              ["Compressed photo", "~200 KB – 1 MB"],
+              ["1 minute of HD video", "~50–100 MB"]
+            ]
+          }
+        },
+        {
+          "id": "size-buckets",
+          "type": "sort",
+          "prompt": "Which size range does each item fall into?",
+          "buckets": ["Under 1 KB", "1 KB – 1 MB", "Over 10 MB"],
+          "items": [
+            { "text": "A UUID", "bucket": "Under 1 KB", "why": "128 bits = 16 bytes in binary (36 bytes as a text string)." },
+            { "text": "A 64-bit timestamp", "bucket": "Under 1 KB", "why": "64 bits = 8 bytes." },
+            { "text": "A short text post with its metadata", "bucket": "Under 1 KB", "why": "~300 bytes: text plus IDs, timestamps, and counters." },
+            { "text": "A 100×100 profile thumbnail", "bucket": "1 KB – 1 MB", "why": "A small JPEG is a few KB." },
+            { "text": "A photo as stored by a social app (compressed)", "bucket": "1 KB – 1 MB", "why": "Resized and recompressed photos are typically a few hundred KB." },
+            { "text": "One minute of HD video", "bucket": "Over 10 MB", "why": "~50–100 MB, depending on bitrate." },
+            { "text": "A 1-hour podcast at 128 kbps", "bucket": "Over 10 MB", "why": "128 kbit/s × 3,600 s ≈ 460 Mbit ≈ 58 MB." }
+          ],
+          "why": "Text lives in bytes, images in kilobytes, and audio and video in megabytes and up. Knowing the bucket tells you which data dominates storage."
+        },
+        {
+          "id": "events-storage",
+          "type": "estimate",
+          "prompt": "An analytics pipeline stores 1 billion click events, each just a user ID and a timestamp. How much raw storage is that?",
+          "given": [
+            ["Events", "1 billion"],
+            ["User ID", "int64 = 8 bytes"],
+            ["Timestamp", "int64 = 8 bytes"],
+            ["1 GB", "≈ 1 billion bytes"]
+          ],
+          "answer": 16,
+          "unit": "GB",
+          "tolerance": 0.3,
+          "solution": ["8 B + 8 B = 16 B per event", "1B events × 16 B = 16 billion bytes", "16 billion bytes ≈ 16 GB"],
+          "hint": "A billion of anything that's N bytes is N GB.",
+          "why": "A billion records of N bytes is N GB, so no conversion is needed. A real database adds per-row headers and indexes, which can easily double or triple a row this small."
+        },
+        {
+          "id": "photos-per-disk",
+          "type": "estimate",
+          "prompt": "How many compressed photos fit on a 1 TB disk?",
+          "given": [
+            ["Disk", "1 TB ≈ 10^12 bytes"],
+            ["Photo", "500 KB = 5 × 10^5 bytes"]
+          ],
+          "answer": 2000000,
+          "unit": "photos",
+          "tolerance": 0.3,
+          "solution": ["10^12 ÷ (5 × 10^5) = 0.2 × 10^7", "0.2 × 10^7 = 2 × 10^6 ≈ 2 million photos"],
+          "hint": "TB ÷ KB is 10^12 ÷ 10^3 = 10^9. Then divide by 500.",
+          "why": "Split the problem into exponents and leading digits: TB ÷ KB = 10^9, and 10^9 ÷ 500 = 2 × 10^6. Keeping the exponents separate is how you avoid being off by 1,000×."
+        }
+      ]
+    },
+    {
+      "id": "users-to-qps",
+      "title": "From users to QPS",
+      "summary": "Daily users × actions ÷ 100K seconds = average QPS, then peaks and the read/write split.",
+      "minutes": 8,
+      "steps": [
+        {
+          "id": "pretest-qps",
+          "type": "choice",
+          "prompt": "A note-taking app has 10M daily active users, each making about 10 requests a day. What's the average load?",
+          "options": ["~100 requests/sec", "~1,000 requests/sec", "~10,000 requests/sec", "~100,000 requests/sec"],
+          "answer": "~1,000 requests/sec",
+          "why": "10M × 10 = 100M requests a day, and 100M ÷ 100K seconds ≈ 1,000 requests/sec.",
+          "misconceptions": {
+            "~100,000 requests/sec": "That divides by 1,000 instead of by the ~100K seconds in a day.",
+            "~10,000 requests/sec": "Off by 10×: 100M ÷ 100K is 1,000. Count the zeros: 10^8 ÷ 10^5 = 10^3.",
+            "~100 requests/sec": "That divides by 1M seconds; a day is only ~100K seconds."
+          }
+        },
+        {
+          "id": "qps-formula",
+          "type": "concept",
+          "title": "The QPS formula",
+          "body": "**Average QPS = DAU × actions per user per day ÷ 100K seconds.** Count only actions that hit your servers, and treat reads and writes separately when they differ. Write the daily total down: it feeds the storage estimate too. This gives the average; capacity is sized for the peak.",
+          "visual": {
+            "kind": "flow",
+            "steps": ["DAU", "× actions per user per day", "= requests per day", "÷ 100K s", "= average QPS"]
+          }
+        },
+        {
+          "id": "chat-write-qps",
+          "type": "estimate",
+          "prompt": "A messaging app: how many messages are sent per second, on average?",
+          "given": [
+            ["Daily active users", "50M"],
+            ["Messages sent per user per day", "40"],
+            ["Seconds per day", "≈ 100K (86,400)"]
+          ],
+          "answer": 20000,
+          "unit": "messages/sec",
+          "tolerance": 0.3,
+          "solution": ["50M × 40 = 2B messages/day", "2B ÷ 100K s = 20K messages/sec"],
+          "why": "Multiply to a daily total first, then divide once by 100K. Doing it in that order keeps the zeros easy to track and gives you the daily volume for later storage math."
+        },
+        {
+          "id": "peak-traffic",
+          "type": "concept",
+          "title": "Size for the peak",
+          "body": "Traffic isn't flat: people use apps in the evening, not at 4 a.m. A typical daily peak is **2–3× the average**; launches, flash sales, and live events can spike **10× or more**. Servers sized for the average fall over every evening, so size for the peak.",
+          "visual": {
+            "kind": "bars",
+            "unit": "× average",
+            "items": [
+              { "label": "Average", "value": 1 },
+              { "label": "Typical daily peak", "value": 2.5, "display": "2–3× average" },
+              { "label": "Flash sale or live event", "value": 10, "display": "10×+ average" }
+            ]
+          }
+        },
+        {
+          "id": "rideshare-peak",
+          "type": "estimate",
+          "prompt": "A ride-hailing app: what peak QPS must the API handle?",
+          "given": [
+            ["Daily active users", "20M"],
+            ["API calls per user per day", "25"],
+            ["Peak factor (dinner rush)", "3× average"],
+            ["Seconds per day", "≈ 100K"]
+          ],
+          "answer": 15000,
+          "unit": "requests/sec",
+          "tolerance": 0.3,
+          "solution": ["20M × 25 = 500M calls/day", "500M ÷ 100K s = 5K requests/sec on average", "5K × 3 = 15K requests/sec at peak"],
+          "why": "Peak, not average, decides how many servers you need. The average (5K/sec) is a stepping stone; the design number is 15K/sec."
+        },
+        {
+          "id": "spiky-peak",
+          "type": "choice",
+          "context": "A concert-ticket site averages 1K requests/sec across the day. Tickets for a stadium tour go on sale at 10:00 sharp.",
+          "prompt": "Which peak assumption is most defensible for sale time?",
+          "options": ["1×: design for the average", "2–3×: the usual daily peak", "10× or more: demand piles into a few minutes", "0.5×: most traffic is overnight bots"],
+          "answer": "10× or more: demand piles into a few minutes",
+          "why": "When everyone arrives at the same instant, a day's demand lands in minutes and peak-to-average can reach 10–100×. That's why ticket sites put buyers in virtual waiting rooms.",
+          "misconceptions": {
+            "2–3×: the usual daily peak": "That rule of thumb is for smooth daily cycles. An on-sale moment concentrates demand far more sharply.",
+            "1×: design for the average": "The average hides the spike; the site would go down exactly when it matters most."
+          }
+        },
+        {
+          "id": "iot-flat",
+          "type": "estimate",
+          "prompt": "Fitness trackers upload a reading every 5 minutes, day and night. What's the average upload rate?",
+          "given": [
+            ["Devices", "5M"],
+            ["Uploads per device per day", "24 h × 12 per hour = 288 ≈ 300"],
+            ["Seconds per day", "≈ 100K"]
+          ],
+          "answer": 15000,
+          "unit": "uploads/sec",
+          "tolerance": 0.3,
+          "solution": ["5M × 300 = 1.5B uploads/day", "1.5B ÷ 100K s = 15K uploads/sec", "Cross-check: 5M devices ÷ 300 s between uploads ≈ 17K/sec, same ballpark"],
+          "why": "Devices on a timer produce flat traffic, so here peak ≈ average, unlike human traffic. The real danger is all devices reconnecting at once after an outage, which is why device schedules get random jitter."
+        },
+        {
+          "id": "read-write-ratio",
+          "type": "concept",
+          "title": "Reads vs writes",
+          "body": "Most user-facing systems are **read-heavy**: a post is written once and read many times. Estimate write QPS from user actions, then multiply by the **read:write ratio** for read QPS. Reads drive caches and replicas; writes drive database write capacity and sharding.",
+          "visual": {
+            "kind": "table",
+            "columns": ["System", "Read:write (rough, illustrative)"],
+            "rows": [
+              ["Social feed", "~100:1"],
+              ["URL shortener", "~10:1"],
+              ["1:1 chat", "~1:1 (each message delivered once)"],
+              ["Metrics and logging", "write-heavy"]
+            ]
+          }
+        },
+        {
+          "id": "shortener-read-qps",
+          "type": "estimate",
+          "prompt": "A URL shortener: what's the average redirect (read) QPS?",
+          "given": [
+            ["New short URLs per day", "100M"],
+            ["Read:write ratio", "10:1"],
+            ["Seconds per day", "≈ 100K"]
+          ],
+          "answer": 10000,
+          "unit": "reads/sec",
+          "tolerance": 0.3,
+          "solution": ["100M ÷ 100K s = 1K writes/sec", "1K × 10 = 10K reads/sec"],
+          "why": "Get write QPS from the stated volume, then scale by the ratio. Using 86,400 s instead gives ≈1,160 writes and ≈11,600 reads per second, the same answer within rounding."
+        },
+        {
+          "id": "qps-recap",
+          "type": "fill",
+          "text": "Average QPS = [[DAU]] × [[actions per user per day]] ÷ [[100K]] seconds. To size servers, multiply by a [[peak factor]]; to get read QPS from write QPS, multiply by the [[read:write ratio]].",
+          "bank": ["DAU", "actions per user per day", "100K", "peak factor", "read:write ratio", "MAU", "1K", "replication factor"],
+          "why": "Daily users and their actions give the daily volume, and 100K s turns it into a rate. Peak factor and read:write ratio adjust that rate; MAU overstates daily traffic, and replication factor belongs to storage, not traffic."
+        }
+      ]
+    },
+    {
+      "id": "storage-and-bandwidth",
+      "title": "Storage and bandwidth",
+      "summary": "Record size × volume × retention × replicas, and QPS × payload for the network.",
+      "minutes": 8,
+      "steps": [
+        {
+          "id": "pretest-photo-storage",
+          "type": "choice",
+          "prompt": "A photo app stores 10M new photos a day at ~500 KB each and keeps them for 5 years. Roughly how much raw storage is that, before replication?",
+          "options": ["~9 TB", "~90 TB", "~9 PB", "~900 PB"],
+          "answer": "~9 PB",
+          "why": "10M × 500 KB = 5 TB per day. Five years is ~1,800 days, and 5 TB × 1,800 = 9,000 TB ≈ 9 PB.",
+          "misconceptions": {
+            "~9 TB": "That's under two days of uploads: 10M × 500 KB is already 5 TB per day.",
+            "~90 TB": "That's about 18 days of uploads. Five years is ~1,800 days, 100× more.",
+            "~900 PB": "100× too big. Check the conversion: 500 KB × 10M = 5 × 10^12 bytes = 5 TB per day."
+          }
+        },
+        {
+          "id": "storage-formula",
+          "type": "concept",
+          "title": "The storage formula",
+          "body": "**Storage = record size × records per day × days retained × replication factor.** Three copies is a common default for durability. Worked: 10M photos × 500 KB = 5 TB/day; × 1,800 days (5 years) ≈ 9 PB; × 3 replicas ≈ 27 PB. Say which factors you include.",
+          "visual": {
+            "kind": "flow",
+            "steps": ["Size per record", "× records per day", "× days kept", "× 3 replicas", "= total storage"]
+          }
+        },
+        {
+          "id": "posts-storage",
+          "type": "estimate",
+          "prompt": "A microblogging service: how much storage for one year of posts, including replicas?",
+          "given": [
+            ["Posts per day", "500M"],
+            ["Size per post (text + metadata)", "≈ 300 bytes"],
+            ["Retention", "1 year = 365 days"],
+            ["Replication factor", "3"]
+          ],
+          "answer": 165,
+          "unit": "TB",
+          "tolerance": 0.3,
+          "solution": ["500M × 300 B = 150 GB/day", "150 GB × 365 ≈ 55 TB/year", "55 TB × 3 replicas ≈ 165 TB"],
+          "why": "Text is small: hundreds of millions of posts a day is still only TB-scale per year. Media attachments, not text, push storage into petabytes."
+        },
+        {
+          "id": "video-storage",
+          "type": "estimate",
+          "prompt": "A video platform: how much new storage does it need per day for the original uploads (one copy)?",
+          "given": [
+            ["Videos uploaded per day", "100K"],
+            ["Average length", "10 minutes"],
+            ["HD video", "≈ 50 MB per minute"]
+          ],
+          "answer": 50,
+          "unit": "TB/day",
+          "tolerance": 0.3,
+          "solution": ["100K videos × 10 min = 1M minutes/day", "1M min × 50 MB = 50M MB", "50M MB = 50 × 10^12 bytes = 50 TB/day"],
+          "why": "Video dwarfs everything else. Real platforms then transcode each upload into several resolutions and replicate them, multiplying this number again."
+        },
+        {
+          "id": "storage-procedure",
+          "type": "order",
+          "prompt": "Put the steps of a storage estimate in order.",
+          "items": [
+            "State assumptions: users, uploads per user, bytes per upload",
+            "Uploads per day = users × uploads per user",
+            "Bytes per day = uploads per day × bytes per upload",
+            "Total = bytes per day × days retained × replication factor",
+            "Sanity-check: how many disks or machines is that?"
+          ],
+          "why": "Each step uses the result of the one before, so this order keeps the arithmetic checkable. The final sanity check translates the total into hardware, where unit slips become obvious."
+        },
+        {
+          "id": "bandwidth",
+          "type": "concept",
+          "title": "Bandwidth",
+          "body": "**Bandwidth = requests per second × bytes per request**, or daily bytes ÷ 100K s. Ingress comes from writes (uploads), egress from reads (downloads), and egress dominates read-heavy apps. Network links are rated in **bits**, so multiply bytes by 8.",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "5 TB/day", "label": "photo uploads" },
+              { "value": "50 MB/s", "label": "÷ 100K seconds" },
+              { "value": "400 Mbps", "label": "× 8 bits per byte" }
+            ]
+          }
+        },
+        {
+          "id": "image-egress",
+          "type": "estimate",
+          "prompt": "An image service's origin servers handle every image read. What's the egress bandwidth?",
+          "given": [
+            ["Image reads per second", "20K"],
+            ["Average image size", "200 KB"]
+          ],
+          "answer": 4,
+          "unit": "GB/s",
+          "tolerance": 0.3,
+          "solution": ["20K/s × 200 KB = 4,000,000 KB/s", "4M KB/s = 4 × 10^9 B/s = 4 GB/s (≈ 32 Gbps)"],
+          "why": "Egress dominates read-heavy media apps. Serving 32 Gbps from origin is why images go behind a CDN, which absorbs most reads close to users."
+        },
+        {
+          "id": "bits-vs-bytes",
+          "type": "choice",
+          "prompt": "Peak egress is 250 MB/s. What does that require from the network, in bits?",
+          "options": ["250 Mbps", "~2 Gbps", "~31 Mbps", "~20 Gbps"],
+          "answer": "~2 Gbps",
+          "why": "Storage is quoted in bytes, networks in bits: 250 MB/s × 8 = 2,000 Mbps ≈ 2 Gbps.",
+          "misconceptions": {
+            "250 Mbps": "MB (bytes) and Mb (bits) differ by 8×. Mixing them is the most common bandwidth mistake.",
+            "~31 Mbps": "That divides by 8. A byte is 8 bits, so the bit rate is the bigger number.",
+            "~20 Gbps": "That multiplies by 80. One byte is 8 bits, so it's 250 × 8 = 2,000 Mbps."
+          }
+        },
+        {
+          "id": "upload-ingress",
+          "type": "estimate",
+          "prompt": "A document-scanning app: what's the average upload (ingress) bandwidth?",
+          "given": [
+            ["Uploads per day", "2M"],
+            ["Average file size", "2 MB"],
+            ["Seconds per day", "≈ 100K"]
+          ],
+          "answer": 40,
+          "unit": "MB/s",
+          "tolerance": 0.3,
+          "solution": ["2M × 2 MB = 4M MB = 4 TB/day", "4 TB ÷ 100K s = 4 × 10^12 ÷ 10^5 = 4 × 10^7 B/s = 40 MB/s (≈ 320 Mbps)"],
+          "why": "Daily volume ÷ 100K s gives the average rate. Provision links for the peak (2–3× this) and convert to bits (× 8) before comparing with link speeds."
+        }
+      ]
+    },
+    {
+      "id": "servers-caches-sanity",
+      "title": "Servers, caches, and sanity checks",
+      "summary": "Turn QPS and bytes into machines, size a cache with the 80/20 rule, and catch absurd results.",
+      "minutes": 8,
+      "steps": [
+        {
+          "id": "pretest-server-capacity",
+          "type": "choice",
+          "prompt": "For a first estimate, about how many simple API requests per second can one commodity app server handle?",
+          "options": ["~10", "~1K–10K", "~1M", "~100M"],
+          "answer": "~1K–10K",
+          "why": "A server doing a quick lookup, some JSON, and a cache or database call per request handles thousands per second. It's an assumption, so say it out loud, and go lower for heavy requests like search or image processing.",
+          "misconceptions": {
+            "~10": "That's a very heavy request, such as rendering a video thumbnail. Simple API calls are hundreds of times cheaper.",
+            "~1M": "Highly tuned proxies or in-memory stores can approach that, but app servers doing real work (auth, serialization, database calls) handle thousands.",
+            "~100M": "That's more than the total traffic of most large services; no single machine comes close."
+          }
+        },
+        {
+          "id": "servers-formula",
+          "type": "concept",
+          "title": "How many servers?",
+          "body": "**Servers = peak QPS ÷ QPS per server.** State the per-server number as an assumption: it varies 100× with request cost. Then add headroom: run at ~70% utilization so a spike or a lost machine doesn't tip you over, and keep at least one spare (N+1).",
+          "visual": {
+            "kind": "flow",
+            "steps": ["Peak QPS", "÷ QPS per server", "÷ ~0.7 target utilization", "+ spares (N+1)", "= servers"]
+          }
+        },
+        {
+          "id": "search-servers",
+          "type": "estimate",
+          "prompt": "A search API: how many servers does the peak load need, before headroom and spares?",
+          "given": [
+            ["Daily active users", "20M"],
+            ["Searches per user per day", "10"],
+            ["Peak factor", "3× average"],
+            ["Capacity per server", "500 searches/sec (search is heavier than a simple call)"],
+            ["Seconds per day", "≈ 100K"]
+          ],
+          "answer": 12,
+          "unit": "servers",
+          "tolerance": 0.3,
+          "solution": ["20M × 10 = 200M searches/day", "200M ÷ 100K s = 2K searches/sec average", "2K × 3 = 6K searches/sec at peak", "6K ÷ 500 per server = 12 servers"],
+          "why": "Chain the steps: daily volume, average, peak, then divide by per-server capacity. With ~70% utilization and a spare you'd deploy about 12 ÷ 0.7 + 1 ≈ 18."
+        },
+        {
+          "id": "cache-80-20",
+          "type": "concept",
+          "title": "Sizing a cache with 80/20",
+          "body": "Reads are skewed: roughly **20% of items get 80% of reads** (a heuristic, not a law). So cache the hot 20%: **cache size ≈ 20% × daily reads × item size**. That's an upper bound, since hot items repeat. Then divide by usable RAM per node to count cache machines.",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "20%", "label": "of items (the hot set)" },
+              { "value": "≈ 80%", "label": "of reads hit them" },
+              { "value": "64–256 GB", "label": "RAM on a typical cache node" }
+            ]
+          }
+        },
+        {
+          "id": "shortener-cache",
+          "type": "estimate",
+          "prompt": "A URL shortener caches hot redirects. Using the 80/20 rule, how much cache memory does it need?",
+          "given": [
+            ["Redirects per second (average)", "10K"],
+            ["Seconds per day", "≈ 100K"],
+            ["Share of daily reads to cache", "20%"],
+            ["Size per cached mapping", "≈ 500 bytes"]
+          ],
+          "answer": 100,
+          "unit": "GB",
+          "tolerance": 0.3,
+          "solution": ["10K/s × 100K s = 1B reads/day", "20% × 1B = 200M entries", "200M × 500 B = 100 GB"],
+          "why": "100 GB fits in the RAM of one or two machines, which is why caching a URL shortener is cheap. Because hot keys repeat, the real working set is smaller still."
+        },
+        {
+          "id": "cache-nodes",
+          "type": "estimate",
+          "prompt": "A social app's profile cache works out to 2 TB. How many cache nodes does it need, before replicas?",
+          "given": [
+            ["Cache size", "2 TB"],
+            ["RAM per node", "128 GB"],
+            ["Usable for cached data", "≈ 100 GB per node (the rest goes to the OS and overhead)"]
+          ],
+          "answer": 20,
+          "unit": "nodes",
+          "tolerance": 0.3,
+          "solution": ["2 TB = 2,000 GB", "2,000 GB ÷ 100 GB per node = 20 nodes"],
+          "why": "Divide by usable memory, not the number on the box. If losing a node shouldn't flood the database with misses, add replicas (often ×2)."
+        },
+        {
+          "id": "sanity-checks",
+          "type": "concept",
+          "title": "Sanity-check every answer",
+          "body": "Before trusting a number, hold it against reality. Is 1 PB of RAM plausible? At 256 GB per machine, that's ~4,000 servers just for cache: a red flag. Recheck units (bits vs bytes, KB vs MB), since one slip is a 1,000× error, and compare with systems you know.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Result", "Plausible?"],
+            "rows": [
+              ["100 GB cache for a URL shortener", "Yes: one or two machines"],
+              ["1 PB of RAM for a cache", "Suspicious: ~4,000 × 256 GB servers"],
+              ["40 MB/s upload ingress", "Yes: well under 1 Gbps"],
+              ["10,000 app servers for 5K QPS", "No: that's 0.5 requests/sec each"]
+            ]
+          }
+        },
+        {
+          "id": "petabyte-ram",
+          "type": "choice",
+          "context": "Your cache estimate for a photo-sharing app comes out at 1 PB of RAM.",
+          "prompt": "What's the best next move?",
+          "options": [
+            "Order ~4,000 large-memory servers",
+            "Recheck assumptions: you're probably caching full images or all data instead of hot metadata",
+            "Move the cache onto spinning disks to save money",
+            "Drop the cache; the database can serve everything"
+          ],
+          "answer": "Recheck assumptions: you're probably caching full images or all data instead of hot metadata",
+          "why": "An absurd total usually means a modeling error. Image bytes belong in object storage behind a CDN; the in-memory cache holds small, hot metadata, typically GBs to low TBs.",
+          "misconceptions": {
+            "Order ~4,000 large-memory servers": "Possible in principle, but a wild number is far more often a mistake. Fix the model before buying hardware.",
+            "Move the cache onto spinning disks to save money": "A disk-backed cache throws away the point of caching: memory-speed reads. Large blobs go to a CDN.",
+            "Drop the cache; the database can serve everything": "The read load that made you want a cache doesn't go away; the database would take all of it."
+          }
+        },
+        {
+          "id": "size-the-cache",
+          "type": "text",
+          "prompt": "Explain how you'd size the cache for a read-heavy service. Which numbers do you need, and how do you combine them?",
+          "concepts": [
+            {
+              "label": "Start from the read volume (read QPS or reads per day)",
+              "any": ["read qps", "reads per day", "daily reads", "reads per second", "read volume", "read traffic", "requests per day", "number of reads", "request count"]
+            },
+            {
+              "label": "Cache the hot ~20% (80/20 rule)",
+              "any": ["80/20", "20 percent", "hot data", "hot items", "hot keys", "hot set", "pareto", "most popular"]
+            },
+            {
+              "label": "Multiply by the size of each cached item",
+              "any": ["object size", "item size", "entry size", "value size", "record size", "average size", "re:how big (each|every|one|an?) (item|entry|object|value|record)", "bytes per item", "re:\\d+\\s*(b|bytes|kb|kilobytes)\\b"]
+            },
+            {
+              "label": "Divide by usable memory per machine to get a node count",
+              "any": ["memory per machine", "ram per server", "per node", "per machine", "across nodes", "across machines", "how many machines", "cache servers", "fit in memory", "shard*"]
+            }
+          ],
+          "pass": 3,
+          "model": "Start from the read volume: read QPS × 100K seconds gives reads per day. Apply the 80/20 rule and cache the hot 20% of those reads, multiplied by the object size, e.g. 1B reads/day × 20% × 500 bytes = 100 GB. Finally divide by usable memory per machine to get the number of cache nodes, and add replicas for failover.",
+          "why": "Cache size is a chain of three numbers (how much is read, how much of it is hot, how big each item is) followed by a hardware check. Stating each one lets an interviewer correct a single link without redoing the rest."
+        }
+      ]
+    }
+  ]
+}

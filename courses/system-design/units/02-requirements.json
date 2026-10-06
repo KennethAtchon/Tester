@@ -1,0 +1,403 @@
+{
+  "id": "requirements",
+  "title": "Requirements",
+  "description": "Pin down what to build, how well it must work, and which trade-offs the product can live with.",
+  "lessons": [
+    {
+      "id": "functional-requirements",
+      "title": "Functional requirements",
+      "summary": "Turn a vague prompt into a short list of testable features.",
+      "minutes": 7,
+      "steps": [
+        {
+          "id": "best-first-question",
+          "type": "choice",
+          "prompt": "The prompt is “Design a URL shortener.” Which question should you ask first?",
+          "options": [
+            "Beyond shortening and redirecting, which features matter?",
+            "Should we use MySQL or Cassandra?",
+            "How should the short codes be generated?",
+            "Which cloud provider do you use?"
+          ],
+          "answer": "Beyond shortening and redirecting, which features matter?",
+          "why": "Scale, API and data model are all designed around the features, so they come first. Databases and algorithms are answers to questions you haven't asked yet.",
+          "misconceptions": {
+            "Should we use MySQL or Cassandra?": "The database follows from the data and its access patterns, which depend on the features and scale.",
+            "How should the short codes be generated?": "That's a deep dive. It only matters once you know what you're building and how many links you'll create.",
+            "Which cloud provider do you use?": "The provider rarely changes the design. The requirements do."
+          }
+        },
+        {
+          "id": "what-it-does",
+          "type": "concept",
+          "title": "What the system does",
+          "body": "**Functional requirements** are behaviors users can see. Write each as a testable statement, “Users can …”, with a clear actor, action and result. If you can't imagine a test that passes or fails, it isn't a requirement yet. Keep the list short: three to five lines that define the product.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Vague", "Testable"],
+            "rows": [
+              ["Handles links", "Users can create a short link for any valid URL"],
+              ["Links go places", "Visiting a short link redirects to the original URL"],
+              ["Links are temporary", "Users can set an expiry date; expired links return 404"]
+            ]
+          }
+        },
+        {
+          "id": "crisp-requirement",
+          "type": "choice",
+          "prompt": "Which is the crispest functional requirement for a photo app?",
+          "options": [
+            "Users can upload photos easily",
+            "Users can upload photos quickly",
+            "Users can upload JPEG or PNG photos up to 20 MB",
+            "The system supports photo uploads"
+          ],
+          "answer": "Users can upload JPEG or PNG photos up to 20 MB",
+          "why": "It names who acts, what they do, and limits you can test: a 21 MB file or a GIF should be rejected. The others hide the real requirement behind an adjective or a missing actor.",
+          "misconceptions": {
+            "Users can upload photos easily": "“Easily” can't be tested. Say exactly what the user can do.",
+            "Users can upload photos quickly": "“Quickly” is about how well, which makes it non-functional, and it needs a number such as “p99 under 2 s”.",
+            "The system supports photo uploads": "No actor and no limits: who uploads, in which formats, and how large?"
+          }
+        },
+        {
+          "id": "scope",
+          "type": "concept",
+          "title": "Scope in, scope out",
+          "body": "Nobody designs everything in 45 minutes, and real teams don't ship it all at once either. Pick the few features that define the product (the **MVP**, minimum viable product) and say out loud what you're leaving out. A short out-of-scope list shows judgment and saves your time for the parts that matter.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "In scope (MVP)", "points": ["Create a short link", "Redirect to the original URL", "Optional custom alias"] },
+            "right": { "title": "Out of scope (for now)", "points": ["Click analytics dashboards", "Accounts and billing", "Link previews"] }
+          }
+        },
+        {
+          "id": "rideshare-scope",
+          "type": "sort",
+          "context": "Design a ride-hailing app. The interviewer says: “Focus on the core loop: getting a rider into a nearby driver's car.”",
+          "prompt": "Sort each feature for the MVP.",
+          "buckets": ["In scope (MVP)", "Out of scope"],
+          "items": [
+            { "text": "Riders can request a ride from their current location", "bucket": "In scope (MVP)" },
+            { "text": "Nearby drivers receive the request and can accept it", "bucket": "In scope (MVP)" },
+            { "text": "Riders can watch the matched driver approach on a map", "bucket": "In scope (MVP)", "why": "Seeing the driver arrive is part of getting into the car, so it belongs to the core loop." },
+            { "text": "Riders can split the fare with friends", "bucket": "Out of scope" },
+            { "text": "Drivers can download weekly earnings reports", "bucket": "Out of scope" },
+            { "text": "Riders can book a ride a week in advance", "bucket": "Out of scope", "why": "Scheduling is a separate flow; the core loop is an on-demand request." },
+            { "text": "Riders earn loyalty points on every trip", "bucket": "Out of scope" }
+          ],
+          "why": "The interviewer named the core loop: request, match, pick-up. Everything else is real product work, but it's not what this design has to prove."
+        },
+        {
+          "id": "clarifying-questions",
+          "type": "concept",
+          "title": "Ask before you design",
+          "body": "Spend the first few minutes on questions whose answers change the design: **users** (who, and how many?), **features** (which few matter?), **scale** (reads and writes per second, data size) and **constraints** (latency, regions, compliance). Skip questions that wouldn't change anything, and write the answers down: they're your spec.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Ask about", "Example"],
+            "rows": [
+              ["Users", "Who uses it? How many daily?"],
+              ["Features", "Which 3–5 matter most?"],
+              ["Scale", "Reads and writes per second? How much data?"],
+              ["Constraints", "Latency targets, regions, compliance?"]
+            ]
+          }
+        },
+        {
+          "id": "question-to-decision",
+          "type": "match",
+          "prompt": "Match each clarifying question to the design decision it drives.",
+          "pairs": [
+            ["How many daily active users?", "How many servers and how much storage"],
+            ["Do reads far outnumber writes?", "Whether to add caches and read replicas"],
+            ["Must users see their own post immediately?", "How strong consistency must be"],
+            ["Are users worldwide or in one country?", "Whether to deploy in several regions"]
+          ],
+          "why": "A good question is one whose answer changes the architecture. If no answer would change what you draw, skip the question."
+        },
+        {
+          "id": "fr-nfr-preview",
+          "type": "fill",
+          "text": "“Users can share a post” is a [[functional]] requirement: it says [[what]] the system does. “Shared posts reach followers within 5 seconds” is a [[non-functional]] requirement: it says how [[well]] the system does it.",
+          "bank": ["functional", "what", "non-functional", "well", "often", "who"],
+          "why": "Functional requirements are behaviors; non-functional ones are qualities with a number attached. The next lesson is about choosing those numbers."
+        }
+      ]
+    },
+    {
+      "id": "non-functional-requirements",
+      "title": "Non-functional requirements",
+      "summary": "How well it must work, in numbers you can measure.",
+      "minutes": 8,
+      "steps": [
+        {
+          "id": "three-nines",
+          "type": "choice",
+          "prompt": "A service promises 99.9% availability. Roughly how much downtime does that allow per year?",
+          "options": ["About 9 minutes", "About 1 hour", "About 9 hours", "About 4 days"],
+          "answer": "About 9 hours",
+          "why": "A year has about 8,760 hours, and 0.1% of that is about 8.8 hours. Each extra nine divides the budget by 10.",
+          "misconceptions": {
+            "About 9 minutes": "That's near five nines (99.999% allows about 5 minutes a year). Three nines is 0.1% of 8,760 hours.",
+            "About 1 hour": "That's roughly 99.99% (about 53 minutes a year), ten times stricter.",
+            "About 4 days": "That's 99% (about 3.7 days a year), ten times looser."
+          }
+        },
+        {
+          "id": "how-well",
+          "type": "concept",
+          "title": "How well, in numbers",
+          "body": "**Non-functional requirements** say how well the system must work: availability, latency, throughput, durability, consistency, scalability, security and cost. Each needs a number you could put on a dashboard or an alert. “Fast” is a wish; “p99 under 200 ms” is a requirement, and it also tells you when you're done.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "Wish", "points": ["Fast", "Always up", "Never loses data", "Scales"] },
+            "right": { "title": "Requirement", "points": ["p99 under 200 ms", "99.95% of requests succeed each month", "Acknowledged writes survive losing a data center", "Handles 10× today's peak"] }
+          }
+        },
+        {
+          "id": "fr-or-nfr",
+          "type": "sort",
+          "prompt": "Functional or non-functional?",
+          "buckets": ["Functional", "Non-functional"],
+          "items": [
+            { "text": "Users can follow other users", "bucket": "Functional" },
+            { "text": "The home feed loads in under 300 ms at p99", "bucket": "Non-functional" },
+            { "text": "Users can delete their own posts", "bucket": "Functional" },
+            { "text": "The service stays up if a data center goes offline", "bucket": "Non-functional", "why": "That's availability: how well it keeps working, not a new feature." },
+            { "text": "Uploaded photos are never lost", "bucket": "Non-functional", "why": "Durability is a quality of how data is stored, not something a user does." },
+            { "text": "Users can search posts by hashtag", "bucket": "Functional" },
+            { "text": "Infrastructure costs stay under $50K a month", "bucket": "Non-functional" },
+            { "text": "Admins can suspend an account", "bucket": "Functional", "why": "An admin is still a user, and suspending an account is a behavior." }
+          ],
+          "why": "Functional means what the system does for someone. Non-functional means how well it does it, measured by a number."
+        },
+        {
+          "id": "counting-nines",
+          "type": "concept",
+          "title": "Counting nines",
+          "body": "**Availability** is the share of time, or of requests, that the service works. Each extra nine cuts allowed downtime 10× and costs more: redundancy, automatic failover, careful deploys. Pick the target the product needs: a payments system may justify four or five nines; an internal reporting tool doesn't.",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "99%", "label": "≈ 3.7 days down / year" },
+              { "value": "99.9%", "label": "≈ 8.8 h down / year" },
+              { "value": "99.99%", "label": "≈ 53 min down / year" },
+              { "value": "99.999%", "label": "≈ 5.3 min down / year" }
+            ]
+          }
+        },
+        {
+          "id": "monthly-downtime",
+          "type": "estimate",
+          "prompt": "At 99.9% availability, how many minutes of downtime are allowed in a 30-day month?",
+          "given": [
+            ["Days in the month", "30"],
+            ["Minutes per day", "24 × 60 = 1,440"],
+            ["Allowed downtime", "100% − 99.9% = 0.1%"]
+          ],
+          "answer": 43,
+          "unit": "minutes",
+          "tolerance": 0.3,
+          "hint": "0.1% is 0.001.",
+          "solution": ["30 × 1,440 = 43,200 minutes in the month", "43,200 × 0.001 ≈ 43 minutes"],
+          "why": "Teams manage this as a monthly **error budget**: at three nines, one bad deploy that takes 45 minutes to roll back spends the whole month's allowance."
+        },
+        {
+          "id": "every-quality-a-number",
+          "type": "concept",
+          "title": "Every quality gets a number",
+          "body": "Each quality answers its own question. **Latency** targets are percentiles per operation, since averages hide slow tails. **Throughput** is a peak rate. **Durability** is the odds of losing data: Amazon S3 is designed for eleven nines a year. **Consistency** is how stale a read may be. Even **security** and **cost** get concrete targets.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Quality", "Quantify as"],
+            "rows": [
+              ["Availability", "% of requests that succeed, per month"],
+              ["Latency", "p50 / p99 per operation"],
+              ["Throughput", "Peak requests or MB per second"],
+              ["Durability", "Chance of losing an object per year"],
+              ["Consistency", "Maximum staleness of a read"],
+              ["Scalability", "Headroom, e.g. 10× peak without a redesign"],
+              ["Security", "Rules you can audit, e.g. all data encrypted at rest"],
+              ["Cost", "$ per month, or per million requests"]
+            ]
+          }
+        },
+        {
+          "id": "nfr-metric",
+          "type": "match",
+          "prompt": "Match each quality to a measurable target.",
+          "pairs": [
+            ["Availability", "99.95% of requests succeed each month"],
+            ["Latency", "p99 under 200 ms"],
+            ["Throughput", "50K writes/sec at peak"],
+            ["Durability", "No acknowledged write is ever lost"],
+            ["Consistency", "Reads reflect a write within 1 second"]
+          ],
+          "why": "Each target can be measured and alerted on. Availability and durability differ: a service can be down for an hour without losing a single byte."
+        },
+        {
+          "id": "best-latency-target",
+          "type": "choice",
+          "prompt": "Which latency requirement is best?",
+          "options": [
+            "Responses should be fast",
+            "Average response time is under 200 ms",
+            "99% of feed requests complete in under 200 ms",
+            "Every request completes in under 200 ms"
+          ],
+          "answer": "99% of feed requests complete in under 200 ms",
+          "why": "A percentile target is measurable and allows a small, explicit tail. It also names the operation, since a feed read and a video upload need different targets.",
+          "misconceptions": {
+            "Responses should be fast": "Not measurable: fast for which operation, and at what percentile?",
+            "Average response time is under 200 ms": "An average can hide 5% of requests taking 3 seconds. Percentiles show the tail users feel.",
+            "Every request completes in under 200 ms": "100% is unachievable in practice: one garbage-collection pause or lost packet breaks it. Percentiles allow a small, explicit tail."
+          }
+        }
+      ]
+    },
+    {
+      "id": "access-patterns",
+      "title": "Access patterns and trade-offs",
+      "summary": "Read/write mix, data growth, and what to give up when requirements collide.",
+      "minutes": 8,
+      "steps": [
+        {
+          "id": "redirect-ratio",
+          "type": "choice",
+          "prompt": "A URL shortener creates 100M links a month and serves 10B redirects a month. What should the design optimize for?",
+          "options": ["Fast redirects (reads)", "Fast link creation (writes)", "Both equally", "The lowest storage cost"],
+          "answer": "Fast redirects (reads)",
+          "why": "Redirects outnumber creations 100 to 1, so read speed dominates both user experience and load. A create that takes 50 ms longer goes unnoticed; a slow redirect is felt on every click.",
+          "misconceptions": {
+            "Fast link creation (writes)": "Only about 1 request in 100 is a write. Make writes correct; make reads fast.",
+            "Both equally": "With a 100:1 ratio, a design tuned for reads handles far more of the real load.",
+            "The lowest storage cost": "100M links a month at a few hundred bytes each is tens of GB: cheap. Traffic is the hard part."
+          }
+        },
+        {
+          "id": "read-write-ratio",
+          "type": "concept",
+          "title": "Read-heavy or write-heavy?",
+          "body": "The **read:write ratio** shapes the design. **Read-heavy** systems (feeds, product pages, short links; often 100:1 or more) lean on caches, CDNs and read replicas. **Write-heavy** systems (logs, metrics, sensor data) need cheap appends, partitioned writes, and queues to absorb bursts. Ask for the ratio, or estimate it from how users behave.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "Read-heavy", "points": ["Feeds, product pages, short links", "Cache hot data close to users", "Add read replicas"] },
+            "right": { "title": "Write-heavy", "points": ["Logs, metrics, sensor readings", "Append-friendly storage", "Partition writes; buffer bursts in a queue"] }
+          }
+        },
+        {
+          "id": "read-or-write-heavy",
+          "type": "sort",
+          "prompt": "Read-heavy or write-heavy?",
+          "buckets": ["Read-heavy", "Write-heavy"],
+          "items": [
+            { "text": "A news site's article pages", "bucket": "Read-heavy" },
+            { "text": "An application log collection pipeline", "bucket": "Write-heavy" },
+            { "text": "An online store's product catalog", "bucket": "Read-heavy" },
+            { "text": "Fitness trackers uploading heart rate every second", "bucket": "Write-heavy", "why": "Millions of devices write constantly; each reading is rarely read, and then usually in aggregate." },
+            { "text": "Video playback on a streaming service", "bucket": "Read-heavy" },
+            { "text": "Click tracking for ad analytics", "bucket": "Write-heavy", "why": "Every impression and click is recorded; reports read summaries, not raw rows." }
+          ],
+          "why": "Ask who creates the data and who consumes it. Content made once and viewed many times is read-heavy; machine-generated events that are mostly aggregated later are write-heavy."
+        },
+        {
+          "id": "data-growth",
+          "type": "concept",
+          "title": "How much data, how fast?",
+          "body": "Ask how big the data is and how fast it grows. 100M new posts a day at 1 KB each is 100 GB a day, about 36 TB a year before replication. Five years is around 180 TB, beyond a comfortable single database. Growth, not today's size, decides when you'll need to partition.",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "100 GB", "label": "per day (100M × 1 KB)" },
+              { "value": "≈ 36 TB", "label": "per year" },
+              { "value": "≈ 180 TB", "label": "after 5 years, before replicas" }
+            ]
+          }
+        },
+        {
+          "id": "message-storage",
+          "type": "estimate",
+          "prompt": "A messaging app stores 10B messages a day, about 100 bytes each. How much new storage does it need per year, before replication?",
+          "given": [
+            ["Messages per day", "10B"],
+            ["Size per message (text + metadata)", "≈ 100 bytes"],
+            ["Days per year", "≈ 365"]
+          ],
+          "answer": 365,
+          "unit": "TB/year",
+          "tolerance": 0.3,
+          "solution": ["10B × 100 B = 1,000 GB ≈ 1 TB per day", "1 TB × 365 ≈ 365 TB per year (about 1 PB with 3 replicas)"],
+          "why": "Hundreds of terabytes a year rules out a single database server and points to a partitioned store built for appends. Saying “before replication” matters, because three copies triple it."
+        },
+        {
+          "id": "when-requirements-collide",
+          "type": "concept",
+          "title": "When requirements collide",
+          "body": "Requirements can conflict. If replicas lose contact with each other (a network **partition**), each side must either refuse some requests to stay **consistent**, or keep answering with possibly stale data to stay **available**. That's the question the CAP theorem poses, and the product answers it, often per feature. The theory comes later in the course.",
+          "visual": {
+            "kind": "compare",
+            "left": { "title": "Prefer consistency", "points": ["Bank balances and payments", "Booking the last seat", "Claiming a unique username"] },
+            "right": { "title": "Prefer availability", "points": ["Like and view counts", "Social feeds", "Product reviews"] }
+          }
+        },
+        {
+          "id": "balance-vs-likes",
+          "type": "choice",
+          "context": "A payments app has two features: account balances, and a social feed where friends can like each other's posts. A network partition splits its data centers.",
+          "prompt": "Which pairing of behaviors is right during the partition?",
+          "options": [
+            "Balance: refuse withdrawals until it heals. Likes: accept them and reconcile later.",
+            "Balance: accept withdrawals and reconcile later. Likes: refuse them until it heals.",
+            "Both: accept writes and reconcile later.",
+            "Both: refuse writes until it heals."
+          ],
+          "answer": "Balance: refuse withdrawals until it heals. Likes: accept them and reconcile later.",
+          "why": "A wrong balance can let someone spend the same money twice, so refusing briefly is the safer failure. A like count that's off for a minute hurts no one, so staying available wins.",
+          "misconceptions": {
+            "Balance: accept withdrawals and reconcile later. Likes: refuse them until it heals.": "Backwards. Reconciling balances later can allow double-spending, while refusing likes makes the app look broken to protect a number nobody audits.",
+            "Both: accept writes and reconcile later.": "Fine for likes, but two withdrawals on opposite sides of the partition could each see the full balance and both succeed.",
+            "Both: refuse writes until it heals.": "Safe, but needlessly strict: rejecting likes makes the app look broken to protect a number nobody audits."
+          }
+        },
+        {
+          "id": "booking-consistency",
+          "type": "text",
+          "prompt": "A concert ticketing site sells reserved seats. During a network partition, should seat booking favor consistency or availability? Justify your choice in two or three sentences.",
+          "hint": "What's worse for a fan: an error message, or arriving to find someone else in their seat?",
+          "concepts": [
+            {
+              "label": "Favors consistency",
+              "any": [
+                "re:(favou?r|prefer|choos|chose|pick|prioriti[sz]|go with|opt for|need|want)\\w*\\s+(strong\\s+|strict\\s+)?consisten",
+                "re:consisten\\w*\\s+(over|before|rather than|instead of|>)\\s+availab",
+                "re:^\\W*(strong\\s+)?consisten",
+                "re:(must|should|needs? to|has to) be (strongly )?consistent",
+                "linearizab*",
+                "re:\\bcp\\b"
+              ]
+            },
+            {
+              "label": "Prevents selling the same seat twice",
+              "any": [
+                "double book*",
+                "double sell*",
+                "oversell*",
+                "oversold",
+                "seat twice",
+                "re:(two|2|multiple|both) (different )?(people|fans|users|customers|buyers)"
+              ]
+            },
+            {
+              "label": "Accepts that some requests fail or wait",
+              "any": ["reject*", "refus*", "error*", "unavailab*", "retry", "re:try (again|later)"]
+            }
+          ],
+          "pass": 2,
+          "model": "Favor consistency. If both sides of the partition kept selling, two fans could book the same seat, and a double-booking means refunds and angry customers at the door. It's better to reject or delay some booking requests with an error and let people retry once the partition heals.",
+          "why": "A double-sold seat is a real-world failure you can't quietly fix, while a brief “try again” is only an annoyance. A like count is the opposite case, where staying available wins."
+        }
+      ]
+    }
+  ]
+}

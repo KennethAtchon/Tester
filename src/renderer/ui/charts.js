@@ -192,7 +192,7 @@ export function calibrationChart(buckets, { height = 220 } = {}) {
 }
 
 // Calendar heatmap: columns are weeks, rows Monday→Sunday. Sequential ramp.
-export function heatmap(cells, { goal }) {
+export function heatmap(cells, { goal, unit = "XP" }) {
   const size = 14;
   const gap = 3;
   const weeks = Math.ceil(cells.length / 7);
@@ -219,7 +219,7 @@ export function heatmap(cells, { goal }) {
     });
     svg.append(rect);
     if (!cell.future) {
-      const tip = `${cell.day}: ${cell.count} card${cell.count === 1 ? "" : "s"}${cell.met ? " · goal met" : ""}${cell.frozen ? " · streak freeze" : ""}`;
+      const tip = `${cell.day}: ${cell.count} ${unit}${cell.met ? " · goal met" : ""}${cell.frozen ? " · streak freeze" : ""}`;
       attachTip(rect, tip);
     }
     // Label a column with its month when it holds the month's first Monday.

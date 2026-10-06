@@ -1,4 +1,4 @@
-// Insights: teaches the learner to judge their own learning. Calibration
+// Insights (a Progress tab): teaches the learner to judge their own learning. Calibration
 // (are you as right as you feel?), retention by spacing gap (the fluency
 // illusion made visible), the learner's own forgetting curve, review load,
 // whether practice sits in the 70–85% challenge band, and practice habits.
@@ -6,11 +6,11 @@
 
 import { h } from "../../lib/dom.js";
 import { icon } from "../icons.js";
-import { card, pageHead, statTile, emptyState, pct, meter, chip } from "../components.js";
+import { card, statTile, emptyState, pct, meter } from "../components.js";
 import { chartCard, columnChart, lineChart, calibrationChart, heatmap, dataTable, legendItem } from "../charts.js";
 import { catalog } from "../../state/catalog.js";
 import { progress, settings } from "../../state/progress.js";
-import { skillStats, weekXp, earnedBadges } from "../../state/learner.js";
+import { unitStats } from "../../state/learner.js";
 import {
   calibration,
   retentionByGap,
@@ -19,25 +19,19 @@ import {
   forecast,
   activityGrid,
   hintReliance,
-  forgettingCurve,
-  jolAccuracy
+  forgettingCurve
 } from "../../domain/insights.js";
-import { formatAgo } from "../../lib/time.js";
 import { href } from "../router.js";
 
 const percent = (value) => `${Math.round(value * 100)}%`;
 
-export function renderInsights(root) {
-  const page = h("div", { class: "page" });
-  root.append(page);
-
-  page.append(pageHead({ eyebrow: "Metacognition", title: "Insights", sub: "How well you're learning — not how long you spend. Learning signals first." }));
-
+export function insightsPanel() {
+  const page = h("div", { class: "panel" });
   const data = progress();
   const log = data.log;
   if (log.length === 0) {
-    page.append(emptyState({ iconName: "insights", title: "Nothing to show yet", body: "Finish a session and this page will show your calibration, your own forgetting curve, and how spacing changes what you keep." }));
-    return;
+    page.append(emptyState({ iconName: "insights", title: "Nothing to show yet", body: "Finish a lesson and this fills in: your calibration, your own forgetting curve, and how spacing changes what you keep." }));
+    return page;
   }
 
   const memories = Object.values(data.items);
@@ -50,12 +44,11 @@ export function renderInsights(root) {
   page.append(
     h(
       "div",
-      { class: "stat-row stat-row-5" },
-      statTile({ label: "Spaced recall", value: spacing.spaced == null ? "—" : pct(spacing.spaced), sub: spacing.spacedN ? `${spacing.spacedN} reviews after 1+ day` : "needs a review after a day" }),
-      statTile({ label: "Calibration gap", value: cal.error == null ? "—" : `${Math.round(cal.error * 100)} pts`, sub: bias || "rate confidence to see this", tone: cal.error != null && cal.error > 0.15 ? "warn" : null }),
+      { class: "stat-row" },
+      statTile({ label: "Spaced recall", value: spacing.spaced == null ? "—" : pct(spacing.spaced), sub: spacing.spacedN ? `${spacing.spacedN} reviews after 1+ day` : "needs a review a day later" }),
+      statTile({ label: "Calibration gap", value: cal.error == null ? "—" : `${Math.round(cal.error * 100)} pts`, sub: bias || "rate confidence in reviews to see this", tone: cal.error != null && cal.error > 0.15 ? "warn" : null }),
       statTile({ label: "Hint reliance", value: hints == null ? "—" : pct(hints), sub: "of recent answers used a hint" }),
-      statTile({ label: "Long-term memory", value: String(longTerm), sub: "items stable for 3+ weeks" }),
-      statTile({ label: "Points", value: String(data.stats.xpTotal || 0), sub: `${weekXp()} this week` })
+      statTile({ label: "Long-term memory", value: String(longTerm), sub: "cards stable for 3+ weeks" })
     )
   );
 
@@ -65,18 +58,14 @@ export function renderInsights(root) {
         "div",
         { class: "callout callout-accent insight-callout" },
         icon("eye", { size: 18 }),
-        h(
-          "div",
-          null,
-          h("strong", { text: "The fluency illusion, in your own numbers. " }),
-          `Same-day retries: ${pct(spacing.massed)} right. After a day or more: ${pct(spacing.spaced)}. The same-day number feels like learning; the spaced one is what you actually keep. That's why reviews are spread out.`
-        )
+        h("div", null, h("strong", { text: "The fluency illusion, in your own numbers. " }), `Same-day retries: ${pct(spacing.massed)} right. After a day or more: ${pct(spacing.spaced)}. The same-day number feels like learning; the spaced one is what you actually keep.`)
       )
     );
   }
 
   page.append(h("div", { class: "chart-grid" }, calibrationCard(cal), retentionCard(log), curveCard(memories), forecastCard(memories), challengeCard(log), calendarCard()));
-  page.append(h("div", { class: "insight-lower" }, skillsCard(), h("div", { class: "insight-side" }, badgesCard(), jolCard(data))));
+  page.append(unitsCard());
+  return page;
 }
 
 function calibrationCard(cal) {
@@ -198,86 +187,55 @@ function challengeCard(log) {
 
 function calendarCard() {
   const data = progress();
-  const goal = settings().dailyGoal;
+  const goal = settings().dailyXp;
   const cells = activityGrid(data.streak.history, data.streak.frozen, goal, 18);
   const recent = cells.filter((cell) => !cell.future && (cell.count > 0 || cell.frozen)).slice(-30).reverse();
   return chartCard({
     title: "Practice calendar",
-    sub: `Darker = more cards. Your goal is ${goal} a day.`,
+    sub: `Darker = more XP. Your daily goal is ${goal} XP.`,
     legend: [
       h("span", { class: "legend-item" }, "Less", ...[0, 1, 2, 3, 4].map((level) => h("span", { class: `legend-heat heat-${level}` })), "More"),
       h("span", { class: "legend-item" }, h("span", { class: "legend-heat heat-frozen" }), "Streak freeze")
     ],
-    chart: heatmap(cells, { goal }),
-    table: dataTable(["Day", "Cards", "Goal met"], recent.map((cell) => [cell.day, cell.count, cell.met ? "yes" : cell.frozen ? "frozen" : "no"])),
-    note: `Current streak ${data.streak.current} · best ${data.streak.best}. Streaks count days you met your own goal; freezes cover a missed day.`
+    chart: heatmap(cells, { goal, unit: "XP" }),
+    table: dataTable(["Day", "XP", "Goal met"], recent.map((cell) => [cell.day, cell.count, cell.met ? "yes" : cell.frozen ? "frozen" : "no"])),
+    note: `Current streak ${data.streak.current} · best ${data.streak.best}. A freeze covers one missed day.`
   });
 }
 
-function skillsCard() {
+function unitsCard() {
   const rows = [];
-  for (const library of catalog().libraries) {
-    for (const skill of library.skills) {
-      rows.push({ skill, stats: skillStats(skill.key) });
+  for (const course of catalog().courses) {
+    for (const unitKey of course.unitKeys) {
+      rows.push({ course, unit: catalog().units.get(unitKey), stats: unitStats(unitKey) });
     }
   }
-  rows.sort((a, b) => a.stats.mastery - b.stats.mastery);
   return card(
-    { title: "Skills, weakest first", sub: "Mastery decays as memories fade — a mastered skill that slips shows up here again." },
+    { title: "Units, weakest recall first", sub: "Recall = how much of a unit you could answer right now. It fades as memories do — reviews bring it back." },
     h(
       "div",
       { class: "table-wrap" },
       h(
         "table",
         { class: "table" },
-        h("thead", null, h("tr", null, ["Skill", "Mastery", "Seen", "Due", "Last practiced"].map((label) => h("th", { text: label })))),
+        h("thead", null, h("tr", null, ["Unit", "Recall", "Lessons", "Boss"].map((label) => h("th", { text: label })))),
         h(
           "tbody",
           null,
-          rows.map(({ skill, stats }) =>
-            h(
-              "tr",
-              null,
-              h("td", null, h("a", { href: href("skill", skill.key), text: skill.title }), h("div", { class: "muted small", text: skill.libTitle })),
-              h("td", { class: "strength-cell" }, meter(stats.mastery, { tone: stats.mastered ? "good" : "accent", label: `${skill.title} mastery` }), h("span", { class: "num", text: pct(stats.mastery) })),
-              h("td", { class: "num", text: `${stats.seen}/${stats.total}` }),
-              h("td", { class: "num", text: String(stats.due) }),
-              h("td", { class: "muted", text: stats.lastPracticed ? formatAgo(stats.lastPracticed) : "—" })
+          rows
+            .sort((a, b) => a.stats.mastery - b.stats.mastery)
+            .map(({ course, unit, stats }) =>
+              h(
+                "tr",
+                null,
+                h("td", null, h("a", { href: href("course", course.id), text: unit.title }), h("div", { class: "muted small", text: course.title })),
+                h("td", { class: "strength-cell" }, meter(stats.mastery, { tone: stats.mastery >= 0.8 ? "good" : "accent", label: `${unit.title} recall` }), h("span", { class: "num", text: pct(stats.mastery) })),
+                h("td", { class: "num", text: `${stats.done}/${stats.total}` }),
+                h("td", { text: stats.bossBeaten ? "Defeated" : stats.complete ? "Ready" : "—" })
+              )
             )
-          )
         )
       )
     )
-  );
-}
-
-function badgesCard() {
-  const badges = earnedBadges();
-  return card(
-    { title: "Milestones", sub: "Awarded for mastery, not activity." },
-    h(
-      "ul",
-      { class: "badge-list" },
-      badges.map((badge) =>
-        h(
-          "li",
-          { class: ["badge", badge.earnedAt && "is-earned"] },
-          h("span", { class: "badge-icon" }, icon(badge.earnedAt ? "star" : "lock", { size: 16 })),
-          h("div", null, h("strong", { text: badge.title }), h("span", { text: badge.earnedAt ? `${badge.description} · ${formatAgo(badge.earnedAt)}` : badge.description }))
-        )
-      )
-    )
-  );
-}
-
-function jolCard(data) {
-  const result = jolAccuracy(data.items, data.log);
-  const pending = Object.values(data.items).filter((memory) => memory.jol).length - result.judged;
-  return card(
-    { title: "Your predictions", sub: "“Will you remember this in a week?” — checked against what happened." },
-    result.judged > 0
-      ? h("p", null, h("strong", { class: "big-inline", text: pct(result.accuracy) }), ` of ${result.judged} predictions came true.`)
-      : h("p", { class: "muted small", text: "Answer the end-of-session question and this fills in a week later." }),
-    pending > 0 && chip(`${pending} waiting to be checked`, { iconName: "clock" })
   );
 }

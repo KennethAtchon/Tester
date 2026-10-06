@@ -1,0 +1,941 @@
+{
+  "id": "building-blocks",
+  "title": "Building blocks",
+  "description": "The standard parts nearly every design is made of: load balancers, caches, CDNs, and queues, plus how each one fails.",
+  "lessons": [
+    {
+      "id": "load-balancers",
+      "title": "Load balancers",
+      "summary": "Spread traffic, route around failures, and keep the balancer itself from being the weak link.",
+      "minutes": 8,
+      "steps": [
+        {
+          "id": "lb-pretest",
+          "type": "choice",
+          "context": "Four identical app servers sit behind a load balancer. One of them crashes.",
+          "prompt": "What happens to **new** requests?",
+          "options": [
+            "The LB's health checks start failing, so it stops sending new requests to that server",
+            "Users routed to the dead server keep getting errors until someone restarts it",
+            "DNS drops the dead server's IP, and every client picks up the change within seconds",
+            "The other servers take over its in-flight requests automatically"
+          ],
+          "answer": "The LB's health checks start failing, so it stops sending new requests to that server",
+          "misconceptions": {
+            "Users routed to the dead server keep getting errors until someone restarts it": "That's what happens *without* health checks. With them, the LB notices after a few failed probes and routes around the server.",
+            "DNS drops the dead server's IP, and every client picks up the change within seconds": "Resolvers and clients cache DNS answers for the record's TTL, often minutes. Behind an LB, clients only ever see the LB's address anyway.",
+            "The other servers take over its in-flight requests automatically": "Requests already on the crashed server are lost and must be retried. Only *new* requests get rerouted."
+          },
+          "why": "The LB probes every server (say, `GET /health` every few seconds), takes one out of rotation after a few failures, and adds it back once it passes again. That's what turns a pool of servers into a fault-tolerant service."
+        },
+        {
+          "id": "lb-basics",
+          "type": "concept",
+          "title": "What a load balancer does",
+          "body": "A **load balancer** gives clients one stable address and spreads their requests across a pool of servers. Its **health checks** probe each server and pull failing ones out of rotation, then add them back when they recover. That's what lets you add servers to scale out, and lose one without users noticing.",
+          "visual": {
+            "kind": "diagram",
+            "nodes": [
+              { "id": "c", "type": "client", "x": 10, "y": 50 },
+              { "id": "lb", "type": "lb", "x": 40, "y": 50 },
+              { "id": "a1", "type": "app", "x": 78, "y": 18, "label": "App 1 (healthy)" },
+              { "id": "a2", "type": "app", "x": 78, "y": 50, "label": "App 2 (healthy)" },
+              { "id": "a3", "type": "app", "x": 78, "y": 82, "label": "App 3 (failing checks)" }
+            ],
+            "edges": [
+              ["c", "lb"],
+              ["lb", "a1", "GET /health ok"],
+              ["lb", "a2", "GET /health ok"]
+            ]
+          }
+        },
+        {
+          "id": "lb-spof",
+          "type": "choice",
+          "context": "You've put one load balancer in front of four app servers. Every request now flows through that single box.",
+          "prompt": "How do production systems keep the load balancer from being a single point of failure?",
+          "options": [
+            "Run two or more LBs: a standby takes over a shared virtual IP, or DNS points at several active ones",
+            "Give the load balancer a bigger machine so it's less likely to crash",
+            "Chain a second load balancer behind the first one",
+            "Have clients call app servers directly whenever the LB is down"
+          ],
+          "answer": "Run two or more LBs: a standby takes over a shared virtual IP, or DNS points at several active ones",
+          "misconceptions": {
+            "Give the load balancer a bigger machine so it's less likely to crash": "Bigger hardware adds capacity, not redundancy. A kernel panic or a bad config push still takes the only box down.",
+            "Chain a second load balancer behind the first one": "The first LB is still the only way in. If it dies, the one behind it never sees traffic.",
+            "Have clients call app servers directly whenever the LB is down": "Clients don't know server addresses, and you'd lose health checks and balancing exactly when things are already going wrong."
+          },
+          "why": "The only cure for a single point of failure is a second one ready to take over. Classic setups pair LBs active-passive on a floating IP (keepalived/VRRP); managed cloud LBs such as AWS ALB are already spread across machines and zones for you."
+        },
+        {
+          "id": "l4-vs-l7",
+          "type": "concept",
+          "title": "Layer 4 vs layer 7",
+          "body": "An **L4** load balancer routes by IP and port. It forwards TCP or UDP connections without reading them, so it's fast and works for any protocol. An **L7** load balancer terminates the connection and reads the HTTP request, so it can route by path, header, or cookie, at the cost of more work per request.",
+          "visual": {
+            "kind": "compare",
+            "left": {
+              "title": "Layer 4 (transport)",
+              "points": ["Sees IPs, ports, TCP/UDP", "Forwards connections unopened", "Very fast, any protocol", "e.g. AWS NLB, Linux IPVS"]
+            },
+            "right": {
+              "title": "Layer 7 (application)",
+              "points": ["Reads HTTP paths, headers, cookies", "Routes by content, retries, terminates TLS", "More CPU per request", "e.g. NGINX, Envoy, AWS ALB"]
+            }
+          }
+        },
+        {
+          "id": "l4-or-l7",
+          "type": "sort",
+          "prompt": "Which kind of load balancer does each job need?",
+          "buckets": ["L4 (transport)", "L7 (application)"],
+          "items": [
+            { "text": "Send `/api/*` and `/images/*` to different server pools", "bucket": "L7 (application)", "why": "The path is inside the HTTP request, which only an L7 balancer reads." },
+            { "text": "Route users with a `beta=true` cookie to the canary pool", "bucket": "L7 (application)" },
+            { "text": "Add an `X-Forwarded-For` header with the client's IP", "bucket": "L7 (application)", "why": "Changing headers means parsing and rewriting HTTP." },
+            { "text": "Retry a failed HTTP request on another server", "bucket": "L7 (application)", "why": "An L4 balancer sees a byte stream; it doesn't know where one request ends." },
+            { "text": "Balance raw TCP for a database or custom game protocol", "bucket": "L4 (transport)" },
+            { "text": "Pass TLS through untouched so only the servers hold the private keys", "bucket": "L4 (transport)", "why": "If the LB never decrypts, it can't read HTTP, so it can only route by IP and port." },
+            { "text": "Forward millions of connections per second with minimal processing", "bucket": "L4 (transport)" }
+          ],
+          "why": "If the decision depends on anything inside the request (path, header, cookie) or on understanding requests, it needs L7. If IP and port are enough, L4 is faster and protocol-agnostic."
+        },
+        {
+          "id": "lb-algorithms",
+          "type": "concept",
+          "title": "Choosing the next server",
+          "body": "The **algorithm** decides which healthy server gets each request. **Round robin** takes turns; **weighted** variants give bigger servers more turns; **least connections** follows live load. **Hashing** a key such as user ID sends the same key to the same server, and **consistent hashing** keeps most keys in place when servers join or leave.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Algorithm", "Picks", "Good when"],
+            "rows": [
+              ["Round robin", "The next server in turn", "Servers and requests are uniform"],
+              ["Weighted round robin", "In turn, more often for bigger servers", "Server sizes differ"],
+              ["Least connections", "The server with the fewest open connections", "Request durations vary a lot"],
+              ["Consistent hashing", "hash(key) on a ring", "The same key should hit the same server"]
+            ]
+          }
+        },
+        {
+          "id": "match-algorithms",
+          "type": "match",
+          "prompt": "Match each situation to the balancing algorithm that fits best.",
+          "pairs": [
+            ["Identical servers handling short, similar requests", "Round robin"],
+            ["A pool mixing new 32-core servers with old 8-core ones", "Weighted round robin"],
+            ["Long-lived WebSocket connections that vary wildly in length", "Least connections"],
+            ["Each user should keep hitting the server that has their data cached in memory", "Consistent hashing on user ID"]
+          ],
+          "why": "Pick the algorithm by what varies: nothing (round robin), server size (weights), request duration (least connections), or where the data lives (hashing). Consistent hashing moves only about 1/N of keys when a server joins or leaves, so caches stay warm."
+        },
+        {
+          "id": "sticky-sessions",
+          "type": "concept",
+          "title": "Sticky sessions and their cost",
+          "body": "**Sticky sessions** (session affinity) pin each user to one server, usually via a cookie, so state kept in that server's memory keeps working. The price: load gets lopsided, new servers only get new users, and when a server dies its users' sessions die with it. The usual fix is **stateless** servers with sessions in a shared store.",
+          "visual": {
+            "kind": "compare",
+            "left": {
+              "title": "Sticky sessions",
+              "points": ["Session lives in one server's RAM", "Heavy users stay put: uneven load", "Server dies: its sessions are gone", "Scaling out only helps new users"]
+            },
+            "right": {
+              "title": "Stateless + shared store",
+              "points": ["Session lives in Redis or a database", "Any server can handle any request", "Server dies: user just lands elsewhere", "Add or remove servers freely"]
+            }
+          }
+        },
+        {
+          "id": "sticky-fix",
+          "type": "choice",
+          "context": "Your app keeps each user's shopping cart in the memory of whichever server they first hit, so you turned on sticky sessions.",
+          "prompt": "Which change removes the need for sticky sessions?",
+          "options": [
+            "Store carts in a shared store like Redis, so any server can handle any request",
+            "Switch the algorithm from round robin to least connections",
+            "Copy every cart into every app server's memory",
+            "Shorten the sticky cookie's lifetime to 5 minutes"
+          ],
+          "answer": "Store carts in a shared store like Redis, so any server can handle any request",
+          "misconceptions": {
+            "Switch the algorithm from round robin to least connections": "The algorithm only picks who gets the next request. It can't make a cart that lives on server A appear on server B.",
+            "Copy every cart into every app server's memory": "It works for two or three servers, but every write fans out to all of them and memory use multiplies with each server you add.",
+            "Shorten the sticky cookie's lifetime to 5 minutes": "Users would just lose their carts sooner, when they get re-pinned to a server that doesn't have them."
+          },
+          "why": "Once session state lives outside the app servers, they're stateless and interchangeable. The LB can use any algorithm, a failed server loses nothing, and scaling out helps everyone immediately."
+        },
+        {
+          "id": "lb-build",
+          "type": "build",
+          "context": "A web app has outgrown one server. It must keep serving users when any single app server crashes.",
+          "prompt": "Wire it up: users find the site by name, requests are spread across **at least two** app servers, and all data lives in one database.",
+          "palette": ["client", "dns", "cdn", "lb", "app", "cache", "db_sql", "queue"],
+          "start": { "nodes": [{ "id": "c", "type": "client", "x": 6, "y": 50 }], "edges": [] },
+          "rules": {
+            "nodes": [
+              { "type": "lb", "why": "One stable entry point that spreads traffic and runs health checks." },
+              { "type": "app", "min": 2, "why": "With one server, a crash takes the site down. Two or more let the LB route around a failure." },
+              { "type": "db", "why": "The servers need somewhere durable and shared to keep data." }
+            ],
+            "edges": [
+              { "from": "client", "to": "dns", "why": "The client resolves the domain name to the load balancer's address before connecting." },
+              { "from": "lb", "to": "app", "why": "The load balancer forwards each request to a healthy app server." }
+            ],
+            "paths": [
+              { "through": ["client", "lb", "app", "db"], "why": "Every request enters through the LB and reaches data through an app server." }
+            ],
+            "forbidden": [
+              { "from": "client", "to": "app", "why": "Clients that call servers directly skip health checks and balancing." },
+              { "from": "client", "to": "db", "why": "Clients never talk to the database directly; it would expose your data and skip all app logic." }
+            ],
+            "connected": true,
+            "pass": 0.75
+          },
+          "solution": {
+            "nodes": [
+              { "id": "c", "type": "client", "x": 6, "y": 50 },
+              { "id": "dns", "type": "dns", "x": 24, "y": 14 },
+              { "id": "lb", "type": "lb", "x": 34, "y": 50 },
+              { "id": "a1", "type": "app", "x": 60, "y": 28, "label": "App server 1" },
+              { "id": "a2", "type": "app", "x": 60, "y": 72, "label": "App server 2" },
+              { "id": "db", "type": "db_sql", "x": 88, "y": 50 }
+            ],
+            "edges": [
+              { "from": "c", "to": "dns" },
+              { "from": "c", "to": "lb" },
+              { "from": "lb", "to": "a1" },
+              { "from": "lb", "to": "a2" },
+              { "from": "a1", "to": "db" },
+              { "from": "a2", "to": "db" }
+            ]
+          },
+          "why": "DNS gets the client to the load balancer; the LB spreads requests over interchangeable app servers and stops sending to any that fail health checks. Because the servers share one database, it doesn't matter which one handles a request."
+        }
+      ]
+    },
+    {
+      "id": "caching",
+      "title": "Caching",
+      "summary": "Keep hot data close: where caches live, how they're filled and written, and the math of hit ratios.",
+      "minutes": 9,
+      "steps": [
+        {
+          "id": "hit-ratio-pretest",
+          "type": "choice",
+          "context": "A cache in front of your database serves 90% of reads. After some tuning, it serves 99%.",
+          "prompt": "How much did the read load on the database drop?",
+          "options": [
+            "About 10×: misses fell from 10% to 1% of reads",
+            "About 9%: the hit ratio rose by 9 points",
+            "About 2×",
+            "Not at all: the database still stores all the data"
+          ],
+          "answer": "About 10×: misses fell from 10% to 1% of reads",
+          "misconceptions": {
+            "About 9%: the hit ratio rose by 9 points": "The database only sees misses, so count misses, not hits: 10 per 100 reads became 1 per 100.",
+            "Not at all: the database still stores all the data": "Storing data isn't the load; serving reads is. Hits never reach the database."
+          },
+          "why": "The database serves only the misses. Going from 90% to 99% hits cuts misses from 10 to 1 per 100 reads, a 10× drop, which is why the last few points of hit ratio matter so much."
+        },
+        {
+          "id": "where-caches-live",
+          "type": "concept",
+          "title": "Caches live at every layer",
+          "body": "A **cache** keeps a copy of data somewhere faster or closer than its source. There's one at nearly every hop: the **browser** cache, the **CDN** edge, a shared **application cache** like Redis or Memcached, and the database's own **buffer pool** of hot pages in RAM. The closer to the user, the faster the hit, and the harder to invalidate.",
+          "visual": { "kind": "flow", "steps": ["Browser cache", "CDN edge", "App cache (Redis)", "DB buffer pool", "Disk"] }
+        },
+        {
+          "id": "effective-latency",
+          "type": "estimate",
+          "prompt": "What's the average read latency your app sees?",
+          "given": [
+            ["Cache hit ratio", "90%"],
+            ["Read served by the cache", "1 ms"],
+            ["Read on a miss (cache check + database)", "10 ms"]
+          ],
+          "answer": 1.9,
+          "unit": "ms",
+          "tolerance": 0.3,
+          "solution": [
+            "Hits: 0.9 × 1 ms = 0.9 ms",
+            "Misses: 0.1 × 10 ms = 1.0 ms",
+            "Average: 0.9 + 1.0 = 1.9 ms per read"
+          ],
+          "hint": "Weight each latency by how often it happens, then add.",
+          "why": "Effective latency is a weighted average, and misses dominate it: 10% of reads contribute more than half of the 1.9 ms. At a 99% hit ratio it would fall to about 1.1 ms."
+        },
+        {
+          "id": "cache-aside",
+          "type": "concept",
+          "title": "Cache-aside and read-through",
+          "body": "**Cache-aside** (lazy loading) puts the app in charge: look in the cache; on a **miss**, read the database and store the result for next time. Only data someone asks for gets cached, and if the cache goes down, reads just get slower. **Read-through** is the same flow, except the cache library loads from the database for you.",
+          "visual": {
+            "kind": "diagram",
+            "nodes": [
+              { "id": "app", "type": "app", "x": 15, "y": 50 },
+              { "id": "cache", "type": "cache", "x": 70, "y": 20 },
+              { "id": "db", "type": "db_sql", "x": 70, "y": 80 }
+            ],
+            "edges": [
+              ["app", "cache", "1. get, 3. set on miss"],
+              ["app", "db", "2. read on miss"]
+            ]
+          }
+        },
+        {
+          "id": "cache-aside-read",
+          "type": "order",
+          "prompt": "Put a cache-aside read that **misses** in order.",
+          "items": [
+            "App looks up the key in the cache",
+            "Cache reports a miss",
+            "App queries the database",
+            "App stores the result in the cache with a TTL",
+            "The next read of that key is a cache hit"
+          ],
+          "why": "In cache-aside the application does the filling: miss, read the source of truth, write the value back with a TTL. Only keys that are actually requested end up in the cache."
+        },
+        {
+          "id": "write-strategies",
+          "type": "concept",
+          "title": "Writes: through or back?",
+          "body": "Writes need a policy too. **Write-through** updates the cache and the database together, synchronously: the cache is never behind, but every write pays for both. **Write-back** (write-behind) updates the cache now and flushes to the database later, in batches: writes are very fast, but anything not yet flushed is **lost** if the cache node dies.",
+          "visual": {
+            "kind": "compare",
+            "left": {
+              "title": "Write-through",
+              "points": ["Write cache and DB together", "Cache always matches the DB", "Slower writes", "May cache data nobody reads"]
+            },
+            "right": {
+              "title": "Write-back (write-behind)",
+              "points": ["Write cache now, DB later", "Fast writes, absorbs bursts", "Unflushed writes lost on a crash", "DB lags behind the cache"]
+            }
+          }
+        },
+        {
+          "id": "write-fill",
+          "type": "fill",
+          "text": "**Write-through** sends every write to the cache and the [[database]] [[synchronously|at the same time|together]], so the cache never falls behind. **Write-back** writes only to the [[cache]] and flushes to the database [[later|asynchronously|in batches]]. Writes get faster, but a crashed cache node can [[lose writes|lose data]] that weren't flushed yet.",
+          "bank": ["database", "synchronously", "cache", "later", "lose writes", "serve stale reads", "CDN", "never"],
+          "why": "Write-through spends write latency to keep the cache in step with the database. Write-back spends durability for speed: until the flush, the only copy of the write is in cache memory."
+        },
+        {
+          "id": "ttl-eviction",
+          "type": "concept",
+          "title": "TTLs and eviction",
+          "body": "Cache memory is finite, so entries must leave. A **TTL** expires each entry after a set time, capping how stale it can get. When memory fills anyway, the **eviction policy** picks a victim: **LRU** drops the least recently used key; **LFU** drops the least frequently used one.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Policy", "Removes", "Weak spot"],
+            "rows": [
+              ["TTL", "Entries older than N seconds", "Too short: misses. Too long: stale data"],
+              ["LRU", "The least recently used key", "A one-off scan flushes the hot keys"],
+              ["LFU", "The least frequently used key", "Old favourites linger after going cold"]
+            ]
+          }
+        },
+        {
+          "id": "eviction-scan",
+          "type": "choice",
+          "context": "A nightly report reads every one of 50M products exactly once through the same cache. The next morning the hit ratio has collapsed: the popular products were pushed out.",
+          "prompt": "Which eviction policy would have protected the popular products?",
+          "options": [
+            "LFU: keys used rarely are evicted before keys used often",
+            "LRU: the least recently used keys go first",
+            "FIFO: the oldest inserted keys go first",
+            "None needed: just set a longer TTL on every key"
+          ],
+          "answer": "LFU: keys used rarely are evicted before keys used often",
+          "misconceptions": {
+            "LRU: the least recently used keys go first": "LRU is what failed here: every scanned product was 'recently used', so it pushed out yesterday's favourites.",
+            "FIFO: the oldest inserted keys go first": "FIFO ignores popularity entirely, so the scan flushes hot keys just like LRU.",
+            "None needed: just set a longer TTL on every key": "TTL controls staleness, not what goes when memory is full. The scan still fills memory and forces evictions."
+          },
+          "why": "LFU counts how often each key is used, so one touch from a scan can't outrank keys read thousands of times. Real systems use scan-resistant policies (Redis's `allkeys-lfu`, segmented LRU) or keep batch jobs off the serving cache entirely."
+        }
+      ]
+    },
+    {
+      "id": "cache-pitfalls",
+      "title": "When caches bite",
+      "summary": "Stampedes, stale reads, hot keys, penetration, and cold starts, and the standard fix for each.",
+      "minutes": 9,
+      "steps": [
+        {
+          "id": "stampede-pretest",
+          "type": "choice",
+          "context": "Your homepage is cached under one key with plain cache-aside. The key expires, and rebuilding it takes 100 ms. During those 100 ms, 5,000 requests arrive.",
+          "prompt": "How many of them query the database?",
+          "options": [
+            "Up to about 5,000: every request misses and runs the query itself",
+            "1: the first miss refills the cache for everyone",
+            "0: the cache keeps serving the old value until it's refilled",
+            "About 50: the cache throttles misses"
+          ],
+          "answer": "Up to about 5,000: every request misses and runs the query itself",
+          "misconceptions": {
+            "1: the first miss refills the cache for everyone": "The refill takes as long as the query. Every request that arrives in the meantime also misses and queries too.",
+            "0: the cache keeps serving the old value until it's refilled": "Only if you build that in (serve-stale). With plain cache-aside an expired key is simply gone.",
+            "About 50: the cache throttles misses": "Caches don't throttle misses; they just report them, and each caller goes to the database."
+          },
+          "why": "Cache-aside has no coordination: each request that misses queries the database on its own until someone writes the value back. For a hot, slow-to-build key, that's thousands of identical queries at once."
+        },
+        {
+          "id": "stampede",
+          "type": "concept",
+          "title": "The cache stampede",
+          "body": "When a hot key expires, every request before the refill misses at once and runs the same expensive query: a **cache stampede**, or thundering herd. Fixes: **single-flight** (request coalescing), where one request rebuilds while the rest wait; a short per-key **lock**; **refreshing early**, before expiry; and **jittered TTLs** so many keys don't expire together.",
+          "visual": {
+            "kind": "bars",
+            "unit": "DB queries",
+            "log": true,
+            "items": [
+              { "label": "Plain cache-aside", "value": 5000 },
+              { "label": "Single-flight / lock", "value": 1 }
+            ]
+          }
+        },
+        {
+          "id": "ttl-jitter",
+          "type": "choice",
+          "context": "At startup, a service loads 1M product keys into the cache, every one with a TTL of exactly 60 minutes.",
+          "prompt": "What happens an hour later, and what's the fix?",
+          "options": [
+            "They all expire together and the database takes a burst of misses; randomize each TTL, e.g. 60 min ± 5",
+            "Nothing much: expired keys get refilled one at a time as they're read",
+            "LRU evicts them all at once; switch the cache to LFU",
+            "It's a stampede; raise the TTL to 24 hours so it happens less often"
+          ],
+          "answer": "They all expire together and the database takes a burst of misses; randomize each TTL, e.g. 60 min ± 5",
+          "misconceptions": {
+            "Nothing much: expired keys get refilled one at a time as they're read": "They're refilled as they're read, but all of them at once, because they all expired in the same moment.",
+            "LRU evicts them all at once; switch the cache to LFU": "This is expiry, not eviction. LFU decides what goes when memory is full; it doesn't change when TTLs run out.",
+            "It's a stampede; raise the TTL to 24 hours so it happens less often": "The burst still comes, just daily, and the data can now be a day stale."
+          },
+          "why": "Identical TTLs set at the same moment turn one cache fill into a scheduled stampede. Random jitter spreads the expirations over a window, so misses trickle in instead of arriving together."
+        },
+        {
+          "id": "stale-reads",
+          "type": "concept",
+          "title": "Stale reads and invalidation",
+          "body": "Every cached copy goes **stale** when the source changes. A **TTL** bounds how stale. To be fresher, **invalidate on write**: update the database, then *delete* the cache key so the next read refills it. Deleting beats overwriting: two racing writers can leave an overwritten cache holding the older value. Keep the TTL as a safety net.",
+          "visual": { "kind": "flow", "steps": ["Write to the DB", "Delete the cache key", "Next read misses", "Refill from the DB"] }
+        },
+        {
+          "id": "stale-name",
+          "type": "choice",
+          "context": "A user changes their display name. The write to the database succeeds, but their profile page keeps showing the old name for exactly 10 minutes, every time.",
+          "prompt": "What's the most likely cause and fix?",
+          "options": [
+            "The write never touched the cache, so the old entry lived out its 10-minute TTL; delete the key when the profile is written",
+            "Replication lag on the database replicas; read profiles from the primary",
+            "The cache evicted the key under memory pressure; switch to LFU",
+            "The TTL is the problem; set it to 0"
+          ],
+          "answer": "The write never touched the cache, so the old entry lived out its 10-minute TTL; delete the key when the profile is written",
+          "misconceptions": {
+            "Replication lag on the database replicas; read profiles from the primary": "Replica lag is usually milliseconds to seconds and varies. A steady 10-minute window points at a TTL.",
+            "The cache evicted the key under memory pressure; switch to LFU": "Eviction would cause a miss, and a miss would read the *new* name from the database.",
+            "The TTL is the problem; set it to 0": "A zero TTL means nothing is cached at all. You'd fix staleness by throwing the cache away."
+          },
+          "why": "A fixed staleness window that matches the TTL is the signature of a cache nobody invalidated. Deleting the key on write makes the next read refill from the database, and the TTL stays as a backstop."
+        },
+        {
+          "id": "hot-keys",
+          "type": "concept",
+          "title": "Hot keys",
+          "body": "A **hot key**, like a celebrity's profile, can draw more traffic than the one cache node that owns it can serve, while the rest of the cluster idles. Fixes: **replicate** it under several names (`item:42#1` … `#N`) on different nodes and read a random copy, or add a small **local cache** on each app server with a TTL of a few seconds.",
+          "visual": {
+            "kind": "diagram",
+            "nodes": [
+              { "id": "a1", "type": "app", "x": 14, "y": 28, "label": "App + local cache" },
+              { "id": "a2", "type": "app", "x": 14, "y": 72, "label": "App + local cache" },
+              { "id": "k1", "type": "cache", "x": 70, "y": 14, "label": "Node A: item:42#1" },
+              { "id": "k2", "type": "cache", "x": 70, "y": 50, "label": "Node B: item:42#2" },
+              { "id": "k3", "type": "cache", "x": 70, "y": 86, "label": "Node C: item:42#3" }
+            ],
+            "edges": [["a1", "k1"], ["a1", "k2"], ["a2", "k2"], ["a2", "k3"]]
+          }
+        },
+        {
+          "id": "hot-key-copies",
+          "type": "estimate",
+          "context": "A celebrity's post goes viral. Every page view reads its cached counters from one key.",
+          "prompt": "How many copies of the key do you need, each on a different cache node, so no node is overloaded?",
+          "given": [
+            ["Reads of the hot key", "1M per second"],
+            ["Comfortable load for one cache node", "≈ 100K ops per second (a planning figure; Redis can do more with pipelining)"]
+          ],
+          "answer": 10,
+          "unit": "copies",
+          "tolerance": 0.3,
+          "solution": [
+            "1M reads/s ÷ 100K reads/s per node = 10 copies",
+            "Spread across 10 nodes, each takes about 100K reads/s",
+            "In practice add headroom (say 15) so losing one node doesn't overload the rest"
+          ],
+          "why": "Copies divide read load linearly, but every copy must be updated or invalidated on each write. So replicate only the handful of keys that need it, and pair it with a short-lived local cache to absorb the rest."
+        },
+        {
+          "id": "penetration-cold-start",
+          "type": "concept",
+          "title": "Penetration and cold starts",
+          "body": "Two more ways a cache stops shielding the database. **Cache penetration**: requests for keys that *don't exist* can never hit, so each one reaches the database, which is easy to abuse with random IDs. **Cold start**: after a restart, failover, or new region, the cache is empty and the database takes the full load at once.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Problem", "What happens", "Fix"],
+            "rows": [
+              ["Penetration", "Lookups for missing keys always reach the DB", "Cache the 'not found' result with a short TTL"],
+              ["Penetration at scale", "Bots request millions of random IDs", "A Bloom filter of real keys: 'definitely not here' skips the DB"],
+              ["Cold start", "An empty cache sends every read to the DB", "Pre-warm hot keys; shift traffic over gradually"]
+            ]
+          }
+        },
+        {
+          "id": "problem-fix",
+          "type": "match",
+          "prompt": "Match each cache problem to its standard fix.",
+          "pairs": [
+            ["A hot key expires and thousands of requests rebuild it at once", "Single-flight: one request refills, the rest wait"],
+            ["Bots request random IDs that don't exist, so every lookup hits the DB", "Cache 'not found' briefly, or check a Bloom filter first"],
+            ["One celebrity key overloads the single cache node that owns it", "Replicate the key across nodes, plus a local cache"],
+            ["After a deploy, an empty cache sends all traffic to the DB", "Pre-warm the cache before shifting traffic"],
+            ["A million keys loaded at startup all expire in the same second", "Add random jitter to TTLs"]
+          ],
+          "why": "Each fix targets the exact way load escapes to the database: duplicate rebuilds (coalesce them), keys that can't exist (remember the miss), one overloaded node (spread the key), an empty cache (fill it first), or synchronized expiry (spread it out)."
+        },
+        {
+          "id": "stop-stampede",
+          "type": "text",
+          "context": "Your homepage feed is cached under one key. It's read about 20,000 times a second and takes 2 seconds to rebuild from the database.",
+          "prompt": "How would you stop this key from causing a stampede when it expires? Explain in 2–3 sentences.",
+          "hint": "How many requests should do the rebuild, what should everyone else do meanwhile, and does it have to wait for expiry?",
+          "concepts": [
+            { "label": "Only one request rebuilds (single-flight or a lock)", "any": ["single flight", "singleflight", "coalesc*", "lock", "mutex", "only one request"] },
+            { "label": "Everyone else waits or gets the old value", "any": ["wait", "stale", "old value", "old copy", "old version", "previous value"] },
+            { "label": "Refresh before it expires", "any": ["early", "before expir*", "background", "never expire*", "refresh ahead", "proactiv*"] }
+          ],
+          "pass": 2,
+          "model": "Use single-flight: when the key expires, only one request takes a lock and rebuilds it from the database, while the others wait for that result or keep getting the old stale value. Better still, refresh the key in the background before it expires, so readers never see a miss at all.",
+          "why": "Without coordination, 20,000 reads/s × 2 s of rebuild time is up to 40,000 duplicate queries. Collapsing them into one rebuild, ideally done before expiry, keeps the database at one query per refresh."
+        }
+      ]
+    },
+    {
+      "id": "cdns",
+      "title": "CDNs and the edge",
+      "summary": "Serve content from near the user: what to cache at the edge, how to control it, and how to bust it.",
+      "minutes": 8,
+      "steps": [
+        {
+          "id": "cdn-pretest",
+          "type": "choice",
+          "context": "All your servers are in Virginia. Users in Sydney complain that pages full of images load slowly.",
+          "prompt": "Which change helps them most?",
+          "options": [
+            "Serve images, JS, and CSS from CDN edge servers near Sydney",
+            "Add more app servers in Virginia",
+            "Add a bigger Redis cache in Virginia",
+            "Move the database to faster SSDs"
+          ],
+          "answer": "Serve images, JS, and CSS from CDN edge servers near Sydney",
+          "misconceptions": {
+            "Add more app servers in Virginia": "More servers add capacity, not proximity. Every request still crosses the Pacific and back, roughly 200 ms per round trip.",
+            "Add a bigger Redis cache in Virginia": "A cache hit in Virginia is fast for the server, but the user still pays the trans-Pacific round trip for every file.",
+            "Move the database to faster SSDs": "Static files rarely touch the database, and disk speed can't shorten about 16,000 km of fiber."
+          },
+          "why": "Distance sets a floor on latency that no amount of server power can beat. A page with dozens of assets pays that round trip many times, so moving those bytes close to the user is the big win."
+        },
+        {
+          "id": "what-cdn",
+          "type": "concept",
+          "title": "What a CDN does",
+          "body": "A **CDN** is a network of edge servers in hundreds of cities that cache your content near users. A hit is served from a few milliseconds away, and your origin never sees the request, cutting both **latency** and **bandwidth cost**. CDNs suit anything many users fetch identically: images, video, JS, CSS, and cacheable API responses.",
+          "visual": {
+            "kind": "stats",
+            "items": [
+              { "value": "≈ 200 ms", "label": "Round trip Sydney ↔ Virginia" },
+              { "value": "≈ 10 ms", "label": "Round trip to a Sydney edge" },
+              { "value": "0", "label": "Origin requests on an edge hit" }
+            ]
+          }
+        },
+        {
+          "id": "cdn-friendly",
+          "type": "sort",
+          "prompt": "Which responses should be cached at the CDN, and which must go to your origin?",
+          "buckets": ["Cache at the CDN", "Send to the origin"],
+          "items": [
+            { "text": "Product photos and video segments", "bucket": "Cache at the CDN" },
+            { "text": "A versioned JS bundle, `app.3f9a2c.js`", "bucket": "Cache at the CDN", "why": "The hash in the name means its content never changes, so it can be cached for a year." },
+            { "text": "Fonts and CSS", "bucket": "Cache at the CDN" },
+            { "text": "A public, rarely changing API response, like the list of countries", "bucket": "Cache at the CDN", "why": "Every user gets the same bytes, so it's as cacheable as an image." },
+            { "text": "A logged-in user's account balance", "bucket": "Send to the origin", "why": "It's personal and must be current; a shared cache could show it to the wrong person." },
+            { "text": "`POST /checkout` placing an order", "bucket": "Send to the origin", "why": "Writes change state, so they must reach your servers every time." },
+            { "text": "A password-reset page with a one-time token", "bucket": "Send to the origin" }
+          ],
+          "why": "Cache at the edge what's identical for many users and safe to be a little old. Anything personal, secret, or state-changing goes to the origin."
+        },
+        {
+          "id": "pull-vs-push",
+          "type": "concept",
+          "title": "Pull vs push CDNs",
+          "body": "A **pull** CDN fetches from your origin on the first miss at each edge and caches the response for its TTL: no upload step, but the first user per edge pays for the miss. A **push** CDN has you upload content ahead of time: no cold misses, but you manage every upload and delete. Most sites use pull.",
+          "visual": {
+            "kind": "compare",
+            "left": {
+              "title": "Pull",
+              "points": ["Edge fetches from origin on first request", "Content appears on demand", "First request per edge is slow", "Fits sites with lots of changing content"]
+            },
+            "right": {
+              "title": "Push",
+              "points": ["You upload files to the CDN in advance", "Ready at the edge before anyone asks", "You manage uploads, updates, deletes", "Fits a small set of big, rarely changing files"]
+            }
+          }
+        },
+        {
+          "id": "when-push",
+          "type": "choice",
+          "prompt": "When does a **push** CDN make the most sense?",
+          "options": [
+            "A small set of large files you publish rarely and want at every edge before launch, like a game installer",
+            "A news site adding hundreds of new images every day",
+            "A photo app where millions of user uploads are each viewed only a few times",
+            "Personalized dashboard pages for each logged-in user"
+          ],
+          "answer": "A small set of large files you publish rarely and want at every edge before launch, like a game installer",
+          "misconceptions": {
+            "A news site adding hundreds of new images every day": "With constant new content, an upload pipeline is pure overhead. Pull caches whatever readers actually request.",
+            "A photo app where millions of user uploads are each viewed only a few times": "Pushing would store every photo at every edge, mostly for nobody. Pull caches only what gets viewed.",
+            "Personalized dashboard pages for each logged-in user": "Personal pages shouldn't sit in a shared edge cache at all, pushed or pulled."
+          },
+          "why": "Push pays off when the set of files is small, known in advance, and changes rarely, so pre-positioning is cheap and nobody hits a cold edge. For large or fast-changing catalogs, pull is simpler and caches only what's popular."
+        },
+        {
+          "id": "cache-control",
+          "type": "concept",
+          "title": "Cache-Control and cache busting",
+          "body": "Your origin tells caches what to do with the **`Cache-Control`** header. `public, max-age=31536000, immutable` lets browsers and CDNs keep a file for a year; `private` or `no-store` keeps personal data out of shared caches. To ship a change instantly, don't purge: **version the filename** (`app.3f9a2c.js`) so the new HTML points at a URL no cache has seen.",
+          "visual": {
+            "kind": "table",
+            "columns": ["Response", "Cache-Control", "Why"],
+            "rows": [
+              ["app.3f9a2c.js", "public, max-age=31536000, immutable", "The hash changes whenever the content does"],
+              ["index.html", "no-cache (revalidate every time)", "Must always point at the newest bundle"],
+              ["/api/me", "private, no-store", "Personal: never in a shared cache"]
+            ]
+          }
+        },
+        {
+          "id": "busting-choice",
+          "type": "choice",
+          "context": "You deploy a fix to `styles.css`, which is served with `Cache-Control: max-age=86400` (one day). Hours later, some users still see the old styles.",
+          "prompt": "What's the robust fix for future deploys?",
+          "options": [
+            "Put a content hash in the filename, like `styles.8b1e.css`, and reference it from HTML that's revalidated on every load",
+            "Purge the CDN after every deploy",
+            "Set `max-age=0` on all CSS files",
+            "Ask users to hard-refresh after each release"
+          ],
+          "answer": "Put a content hash in the filename, like `styles.8b1e.css`, and reference it from HTML that's revalidated on every load",
+          "misconceptions": {
+            "Purge the CDN after every deploy": "A purge clears the CDN, but browsers that already cached `styles.css` keep their copy for up to a day.",
+            "Set `max-age=0` on all CSS files": "That works, but every page view now revalidates every file, throwing away most of the caching benefit."
+          },
+          "why": "A new filename is a new URL, so no browser or edge has a stale copy of it, and the old file can stay cached forever harmlessly. Only the small HTML page needs to be revalidated."
+        },
+        {
+          "id": "origin-shield",
+          "type": "concept",
+          "title": "Origin shield and object storage",
+          "body": "With hundreds of edges, one miss per edge still means hundreds of origin fetches for a new file. An **origin shield** is a mid-tier cache that every edge misses into, collapsing those into about one origin request. For static files, make the origin **object storage** (S3, GCS): cheap and durable, so app servers never serve images.",
+          "visual": {
+            "kind": "diagram",
+            "nodes": [
+              { "id": "u1", "type": "client", "x": 6, "y": 20, "label": "Users in Sydney" },
+              { "id": "u2", "type": "client", "x": 6, "y": 80, "label": "Users in London" },
+              { "id": "e1", "type": "cdn", "x": 32, "y": 20, "label": "Sydney edge" },
+              { "id": "e2", "type": "cdn", "x": 32, "y": 80, "label": "London edge" },
+              { "id": "sh", "type": "cdn", "x": 60, "y": 50, "label": "Origin shield" },
+              { "id": "os", "type": "object_store", "x": 90, "y": 50, "label": "Origin bucket" }
+            ],
+            "edges": [["u1", "e1"], ["u2", "e2"], ["e1", "sh", "miss"], ["e2", "sh", "miss"], ["sh", "os", "miss"]]
+          }
+        },
+        {
+          "id": "origin-egress",
+          "type": "estimate",
+          "prompt": "How much data does your origin bucket serve per month?",
+          "given": [
+            ["Static bytes delivered to users per month", "500 TB"],
+            ["CDN hit ratio, by bytes", "95%"]
+          ],
+          "answer": 25,
+          "unit": "TB/month",
+          "tolerance": 0.3,
+          "solution": [
+            "Miss ratio: 100% − 95% = 5%",
+            "Origin traffic: 500 TB × 0.05 = 25 TB/month"
+          ],
+          "why": "Origin load and egress scale with the miss ratio, not total traffic. Raising the hit ratio from 95% to 99% would cut origin traffic another 5×, to about 5 TB."
+        },
+        {
+          "id": "cdn-build",
+          "type": "build",
+          "context": "A photo-sharing site: images, JS, and CSS are files; likes and comments come from a JSON API.",
+          "prompt": "Design it so static files are served from the edge, backed by object storage, while API calls reach your app and database.",
+          "palette": ["client", "dns", "cdn", "lb", "app", "cache", "object_store", "db_sql", "queue"],
+          "start": { "nodes": [{ "id": "c", "type": "client", "x": 6, "y": 50 }], "edges": [] },
+          "rules": {
+            "nodes": [
+              { "type": "cdn", "why": "Edge caches put static files a few milliseconds from users." },
+              { "type": "object_store", "why": "Cheap, durable storage for the images and bundles themselves." },
+              { "type": "lb", "why": "API traffic still needs one entry point spread over app servers." }
+            ],
+            "edges": [
+              { "from": "cdn", "to": "object_store", "why": "The bucket is the CDN's origin: on a miss, the edge pulls the file from object storage, not from app servers." },
+              { "from": "client", "to": "dns", "why": "DNS sends the static hostname to the CDN and the API hostname to the load balancer." }
+            ],
+            "paths": [
+              { "through": ["client", "cdn", "object_store"], "why": "Static files: client, nearest edge, then the bucket only on a miss." },
+              { "through": ["client", "lb", "app", "db"], "why": "Dynamic API requests still reach the app servers and the database." }
+            ],
+            "forbidden": [
+              { "from": "client", "to": "db", "why": "Clients never talk to the database directly." }
+            ],
+            "connected": true,
+            "pass": 0.75
+          },
+          "solution": {
+            "nodes": [
+              { "id": "c", "type": "client", "x": 6, "y": 50 },
+              { "id": "dns", "type": "dns", "x": 22, "y": 12 },
+              { "id": "cdn", "type": "cdn", "x": 40, "y": 28, "label": "CDN (static files)" },
+              { "id": "lb", "type": "lb", "x": 40, "y": 74 },
+              { "id": "app", "type": "app", "x": 62, "y": 74 },
+              { "id": "os", "type": "object_store", "x": 84, "y": 28, "label": "Bucket: images, JS, CSS" },
+              { "id": "db", "type": "db_sql", "x": 88, "y": 74 }
+            ],
+            "edges": [
+              { "from": "c", "to": "dns" },
+              { "from": "c", "to": "cdn" },
+              { "from": "c", "to": "lb" },
+              { "from": "cdn", "to": "os" },
+              { "from": "lb", "to": "app" },
+              { "from": "app", "to": "db" },
+              { "from": "app", "to": "os" }
+            ]
+          },
+          "why": "Two kinds of traffic, two paths. Static files come from the nearest edge, which pulls misses from the bucket; API calls go through the load balancer to the app and database. App servers write new uploads to the bucket but never serve the bytes themselves."
+        }
+      ]
+    },
+    {
+      "id": "queues",
+      "title": "Queues and async work",
+      "summary": "Move slow work out of the request: decoupling, delivery guarantees, idempotency, and ordering.",
+      "minutes": 9,
+      "steps": [
+        {
+          "id": "async-pretest",
+          "type": "choice",
+          "context": "At signup, your handler saves the user, then calls the email provider to send a welcome email. The provider takes about 3 s and sometimes times out, so signups are slow and occasionally fail.",
+          "prompt": "What's the best fix?",
+          "options": [
+            "Save the user, enqueue a 'send welcome email' job, and respond right away; a background worker sends it",
+            "Add more app servers so signups aren't competing for capacity",
+            "Raise the request timeout to 30 s so the email call never times out",
+            "Send the email from a background thread on the same app server"
+          ],
+          "answer": "Save the user, enqueue a 'send welcome email' job, and respond right away; a background worker sends it",
+          "misconceptions": {
+            "Add more app servers so signups aren't competing for capacity": "More servers don't make a 3-second call shorter. Each signup still waits on the provider.",
+            "Raise the request timeout to 30 s so the email call never times out": "That trades failures for even slower signups and ties up a server thread per request.",
+            "Send the email from a background thread on the same app server": "Close: the user no longer waits. But if that server restarts, the in-memory job is lost and nothing retries it. A durable queue survives crashes."
+          },
+          "why": "The user needs their account to continue, not the email. A durable queue takes the provider's latency and failures off the signup path, and the job is retried if sending fails."
+        },
+        {
+          "id": "why-queues",
+          "type": "concept",
+          "title": "Decouple with a queue",
+          "body": "A **message queue** sits between **producers** that create work and **consumers** that do it. Producers enqueue and move on; workers pull at their own pace. That **decouples** the two sides and **absorbs spikes**. It can't absorb forever, though: if producers outpace workers for long, apply **back-pressure** by scaling workers on queue depth or throttling producers.",
+          "visual": {
+            "kind": "diagram",
+            "nodes": [
+              { "id": "p", "type": "app", "x": 10, "y": 50, "label": "Producer (app)" },
+              { "id": "q", "type": "queue", "x": 45, "y": 50 },
+              { "id": "w1", "type": "worker", "x": 80, "y": 25 },
+              { "id": "w2", "type": "worker", "x": 80, "y": 75 }
+            ],
+            "edges": [["p", "q", "enqueue"], ["q", "w1", "pull"], ["q", "w2", "pull"]]
+          }
+        },
+        {
+          "id": "sync-or-async",
+          "type": "sort",
+          "prompt": "Should each task run inside the user's request, or be handed to a queue?",
+          "buckets": ["In the request (sync)", "Hand off to a queue (async)"],
+          "items": [
+            { "text": "Check the password at login", "bucket": "In the request (sync)" },
+            { "text": "Send a welcome email", "bucket": "Hand off to a queue (async)" },
+            { "text": "Transcode an uploaded video into five resolutions", "bucket": "Hand off to a queue (async)", "why": "It takes minutes; the user can be told 'processing' and notified later." },
+            { "text": "Show the user their cart total", "bucket": "In the request (sync)" },
+            { "text": "Generate monthly PDF invoices for every customer", "bucket": "Hand off to a queue (async)" },
+            { "text": "Tell the buyer their card was declined", "bucket": "In the request (sync)", "why": "The user is waiting on this answer to decide what to do next." },
+            { "text": "Update the search index after a post is edited", "bucket": "Hand off to a queue (async)", "why": "A few seconds of delay before the edit is searchable is fine." }
+          ],
+          "why": "If the user needs the result to continue, do it in the request. If it's slow, can be retried, or the user doesn't need to wait, hand it off."
+        },
+        {
+          "id": "delivery",
+          "type": "concept",
+          "title": "At-least-once and idempotency",
+          "body": "Workers **ack** a message only after finishing it; if one crashes first, the queue redelivers it. That's **at-least-once** delivery: nothing is lost, but duplicates happen, so consumers must be **idempotent**. A *poison message* that fails every time shouldn't retry forever: after N attempts, move it to a **dead-letter queue** for someone to inspect.",
+          "visual": {
+            "kind": "compare",
+            "left": {
+              "title": "At-most-once (ack first)",
+              "points": ["Ack, then process", "Crash mid-job: message lost", "Never duplicates", "OK for metrics you can drop"]
+            },
+            "right": {
+              "title": "At-least-once (ack after)",
+              "points": ["Process, then ack", "Crash mid-job: redelivered", "Duplicates happen: be idempotent", "The usual choice for jobs"]
+            }
+          }
+        },
+        {
+          "id": "job-lifecycle",
+          "type": "order",
+          "prompt": "Put the life of a 'send welcome email' job in order.",
+          "items": [
+            "App saves the user and enqueues a `send-welcome` message",
+            "The queue stores the message durably",
+            "A worker receives it, and it's hidden from other workers meanwhile",
+            "The worker sends the email through the notification service",
+            "The worker acks, and the queue deletes the message"
+          ],
+          "why": "The ack comes last on purpose: if the worker dies before acking, the message becomes visible again for another worker. That hidden-but-not-deleted state (SQS's visibility timeout, RabbitMQ's unacked messages) is what makes delivery at-least-once."
+        },
+        {
+          "id": "duplicate-email",
+          "type": "choice",
+          "context": "A worker sent a welcome email, then crashed before acking. The queue redelivered the message, and the user got two emails.",
+          "prompt": "What's the right fix?",
+          "options": [
+            "Make the worker idempotent: record 'welcome sent' per user and skip the job if it's already recorded",
+            "Ack the message before sending the email",
+            "Turn on exactly-once delivery in the queue",
+            "Set the retry limit to zero"
+          ],
+          "answer": "Make the worker idempotent: record 'welcome sent' per user and skip the job if it's already recorded",
+          "misconceptions": {
+            "Ack the message before sending the email": "That's at-most-once: a crash between the ack and the send now loses the email for good.",
+            "Turn on exactly-once delivery in the queue": "No queue can make an outside side effect like an email happen exactly once. Kafka's exactly-once covers reads and writes within Kafka, not calls to your email provider.",
+            "Set the retry limit to zero": "Then any brief failure drops the email entirely, the same trade as at-most-once."
+          },
+          "why": "With at-least-once delivery, duplicates are normal, so the consumer must make them harmless by checking a dedupe record before acting. A tiny window remains between sending and recording, which is why many providers also accept an idempotency key."
+        },
+        {
+          "id": "queues-vs-topics",
+          "type": "concept",
+          "title": "Queues, topics, and partitions",
+          "body": "A **queue** is point-to-point: each message goes to one of many competing workers. A **topic** is pub/sub: every subscribing service gets its own copy. **Kafka** splits a topic into **partitions** and keeps order only *within* a partition, so give related messages the same key (such as a user ID) and they land on one partition, in order.",
+          "visual": {
+            "kind": "compare",
+            "left": {
+              "title": "Queue (point-to-point)",
+              "points": ["Each message goes to one consumer", "Workers compete and share the load", "e.g. SQS, a RabbitMQ queue", "Use for jobs to do once"]
+            },
+            "right": {
+              "title": "Topic (pub/sub)",
+              "points": ["Each message reaches every subscriber", "Services react independently", "e.g. Kafka topics, SNS, Google Pub/Sub", "Use for events many services care about"]
+            }
+          }
+        },
+        {
+          "id": "kafka-ordering",
+          "type": "choice",
+          "context": "An `orders` topic in Kafka has 12 partitions. Each order emits `created`, then `paid`, then `shipped`, and consumers must see each order's events in that order.",
+          "prompt": "How do you guarantee per-order ordering without giving up parallelism?",
+          "options": [
+            "Use the order ID as the message key, so all of an order's events land on the same partition",
+            "Nothing extra: Kafka keeps the whole topic in order",
+            "Spread events round-robin across partitions for even load",
+            "Shrink the topic to a single partition"
+          ],
+          "answer": "Use the order ID as the message key, so all of an order's events land on the same partition",
+          "misconceptions": {
+            "Nothing extra: Kafka keeps the whole topic in order": "Kafka only orders within a partition. Across 12 partitions, events are consumed in parallel with no global order.",
+            "Spread events round-robin across partitions for even load": "That scatters one order's events over different partitions, so `shipped` can be processed before `paid`.",
+            "Shrink the topic to a single partition": "That does order everything, but only one consumer in the group can read it, so throughput is capped."
+          },
+          "why": "Kafka hashes the key to choose the partition, so one order's events always share a partition, which one consumer in the group reads in order. Different orders still spread across all 12 partitions."
+        },
+        {
+          "id": "queue-tools",
+          "type": "match",
+          "prompt": "Match each situation to the tool or technique that handles it.",
+          "pairs": [
+            ["A malformed message crashes the worker on every retry", "Dead-letter queue after N attempts"],
+            ["Signup events must reach the email, analytics, and search services", "Pub/sub topic"],
+            ["Split 1M thumbnail jobs across 50 workers", "Point-to-point work queue"],
+            ["Producers have outpaced workers for an hour and the backlog keeps growing", "Back-pressure: scale workers, throttle producers"],
+            ["A redelivered 'charge card' message must not charge twice", "Idempotency key checked before acting"]
+          ],
+          "why": "Each tool answers one question: where do failures go (DLQ), who gets a copy (topic vs queue), what happens when work piles up (back-pressure), and how duplicates stay harmless (idempotency)."
+        },
+        {
+          "id": "welcome-email-build",
+          "type": "build",
+          "context": "Signups must return fast even when the email provider is slow or down.",
+          "prompt": "Design signup so the user is saved right away and the welcome email is sent **asynchronously**.",
+          "palette": ["client", "cdn", "lb", "app", "cache", "queue", "worker", "db_sql", "notify"],
+          "start": { "nodes": [{ "id": "c", "type": "client", "x": 6, "y": 50 }], "edges": [] },
+          "rules": {
+            "nodes": [
+              { "type": "queue", "why": "Holds email jobs durably, so signup never waits on the email provider." },
+              { "type": "worker", "why": "Background consumers do the slow work outside the request." }
+            ],
+            "edges": [
+              { "from": "app", "to": "queue", "why": "The app enqueues a send-welcome job right after saving the user." },
+              { "from": "queue", "to": "worker", "why": "Workers pull jobs at their own pace and ack when done." },
+              { "from": "worker", "to": "notify", "why": "Only the worker talks to the email service, so its slowness never reaches the user." }
+            ],
+            "paths": [
+              { "through": ["client", "lb", "app", "db"], "why": "The signup itself is saved synchronously, so the account exists before the response." }
+            ],
+            "forbidden": [
+              { "from": "app", "to": "notify", "why": "Calling the email service from the request handler puts its latency and failures back on the signup path." },
+              { "from": "client", "to": "db", "why": "Clients never talk to the database directly." }
+            ],
+            "connected": true,
+            "pass": 0.75
+          },
+          "solution": {
+            "nodes": [
+              { "id": "c", "type": "client", "x": 6, "y": 50 },
+              { "id": "lb", "type": "lb", "x": 22, "y": 50 },
+              { "id": "app", "type": "app", "x": 40, "y": 50 },
+              { "id": "q", "type": "queue", "x": 58, "y": 22, "label": "Email jobs" },
+              { "id": "w", "type": "worker", "x": 76, "y": 22 },
+              { "id": "n", "type": "notify", "x": 93, "y": 22, "label": "Email service" },
+              { "id": "db", "type": "db_sql", "x": 66, "y": 80 }
+            ],
+            "edges": [
+              { "from": "c", "to": "lb" },
+              { "from": "lb", "to": "app" },
+              { "from": "app", "to": "db" },
+              { "from": "app", "to": "q" },
+              { "from": "q", "to": "w" },
+              { "from": "w", "to": "n" },
+              { "from": "w", "to": "db" }
+            ]
+          },
+          "why": "The request path only writes the user and enqueues a job, so it stays fast. The worker sends the email off the critical path and records it in the database, which keeps redeliveries idempotent."
+        }
+      ]
+    }
+  ]
+}
