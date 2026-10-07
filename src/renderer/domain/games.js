@@ -22,7 +22,7 @@ export const GAMES = [
     id: "lab",
     title: "Design Lab",
     icon: "layers",
-    tagline: "Design real systems end to end, graded as you go.",
+    tagline: "Multi-stage projects, built end to end and graded as you go.",
     science: "Transfer: apply every skill together on a realistic problem."
   },
   {
@@ -56,8 +56,8 @@ export const GAMES = [
 ];
 
 export const GOALS = [
-  { id: "interview", title: "Ace system design interviews", detail: "Requirements to deep dives under a clock.", games: ["lessons", "review", "lab", "estimation", "boss"] },
-  { id: "understand", title: "Understand how big systems work", detail: "Build intuition one idea at a time.", games: ["lessons", "review", "arcade", "lab"] },
+  { id: "exam", title: "Prepare for an exam or interview", detail: "Cover everything, then test it under pressure.", games: ["lessons", "review", "lab", "estimation", "boss"] },
+  { id: "understand", title: "Understand it deeply", detail: "Build intuition one idea at a time.", games: ["lessons", "review", "arcade", "lab"] },
   { id: "refresh", title: "Keep my skills sharp", detail: "Quick daily practice on what I know.", games: ["lessons", "review", "lightning", "arcade", "estimation"] }
 ];
 

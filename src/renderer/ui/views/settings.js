@@ -7,7 +7,8 @@ import { settings, persist, progress, resetProgress, progressFilePath, DEFAULT_S
 import { setThemePreference, themePreference } from "../theme.js";
 import { setSoundEnabled, play as sound } from "../../lib/sound.js";
 import { DAILY_GOALS } from "../../domain/games.js";
-import { openCoursesFolder } from "../../io/io.js";
+import { openContentFolder } from "../../io/io.js";
+import { libraryFilePath } from "../../state/library.js";
 import { navigate, refresh } from "../router.js";
 import { toast } from "../toast.js";
 
@@ -24,8 +25,8 @@ export function renderSettings(root) {
     h("div", { class: "setting" }, h("div", { class: "setting-text" }, h("strong", { text: label }), h("p", { class: "muted small", text: help })), h("div", { class: "setting-control" }, control));
 
   const pathLine = h("p", { class: "muted small mono" });
-  progressFilePath().then((path) => {
-    pathLine.textContent = path ? `Progress is saved to ${path}` : "Progress is saved in this browser's storage.";
+  Promise.all([progressFilePath(), libraryFilePath()]).then(([progressPath, libraryPath]) => {
+    pathLine.textContent = progressPath ? `Progress: ${progressPath} · Your subjects and courses: ${libraryPath}` : "Progress, subjects, and courses are saved in this browser's storage.";
   });
 
   page.append(
@@ -73,8 +74,9 @@ export function renderSettings(root) {
       )
     ),
     card(
-      { title: "Courses and data" },
-      row("Courses folder", "Course files here load automatically on every launch.", button("Open folder", { size: "sm", onClick: openCoursesFolder })),
+      { title: "Subjects and data" },
+      row("Your subjects", "Create subjects, write courses, and move courses between subjects.", button("Manage subjects", { size: "sm", onClick: () => navigate("subjects") })),
+      row("Subjects folder", "Built-in subjects live here. A folder with a subject.json and course folders inside loads on every launch.", button("Open folder", { size: "sm", onClick: openContentFolder })),
       pathLine,
       h(
         "div",
@@ -90,7 +92,7 @@ export function renderSettings(root) {
         button("Reset learning progress…", {
           variant: "danger",
           onClick: () => {
-            if (window.confirm("Erase all lesson progress, reviews, mistakes, streaks, and XP? Your courses and settings stay. This can't be undone.")) {
+            if (window.confirm("Erase all lesson progress, reviews, mistakes, streaks, and XP? Your subjects, courses, and settings stay. This can't be undone.")) {
               resetProgress();
               toast("Progress reset.");
               refresh();

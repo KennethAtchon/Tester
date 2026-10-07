@@ -7,10 +7,10 @@
 
 import { normalizeLibrary } from "./normalize.js";
 import { conceptsFromModel } from "./textGrader.js";
-import { normalizeText } from "./grading.js";
+import { normalizeText, parseNumber, parseQuantity } from "./grading.js";
 import { slugify } from "../lib/util.js";
 
-export const GRADABLE_TYPES = new Set(["choice", "sort", "order", "match", "estimate", "fill", "text", "api", "build", "code"]);
+export const GRADABLE_TYPES = new Set(["choice", "sort", "order", "match", "estimate", "number", "fill", "text", "api", "build", "code"]);
 const STEP_TYPES = new Set(["concept", ...GRADABLE_TYPES]);
 const PALETTE = ["#2f6df6", "#8b5cf6", "#14a37f", "#f0743e", "#e0478a", "#0ea5c6", "#c08a00"];
 
@@ -48,7 +48,7 @@ export function toCourse(data, fileName = "") {
   throw new Error("Couldn't find any lessons in that file. See courses/README.md for the format.");
 }
 
-export function normalizeCourse(raw, { source = "imported" } = {}) {
+export function normalizeCourse(raw, { source = "user" } = {}) {
   const warnings = [];
   const title = str(raw.title) || "Untitled course";
   const id = slugify(raw.id || title) || `course-${Date.now()}`;
@@ -95,6 +95,7 @@ export function normalizeCourse(raw, { source = "imported" } = {}) {
     tagline: str(raw.tagline),
     description: str(raw.description),
     color: /^#[0-9a-f]{6}$/i.test(raw.color || "") ? raw.color : PALETTE[hash(id) % PALETTE.length],
+    ownColor: /^#[0-9a-f]{6}$/i.test(raw.color || ""),
     source,
     units,
     projects,
@@ -139,7 +140,9 @@ function stepProblem(step) {
     case "match":
       return Array.isArray(step.pairs) && step.pairs.length >= 2 ? null : "match needs pairs";
     case "estimate":
-      return typeof step.answer === "number" && step.answer > 0 ? null : "estimate needs a numeric answer";
+      return typeof step.answer === "number" && step.answer > 0 ? null : "estimate needs a positive number as its answer";
+    case "number":
+      return step.answer != null && [].concat(step.answer).every(Number.isFinite) ? null : "number needs a numeric answer";
     case "fill":
       return /\[\[[^\]]+\]\]/.test(step.text || "") ? null : "fill needs [[blanks]]";
     case "text":
@@ -239,101 +242,264 @@ function modelConcepts(model) {
 }
 
 // ── plain-text quick courses ────────────────────────────────────────────────
+//
+//   # Course title           lines right after it become the description
+//   ## Unit: Name            starts a unit (optional)
+//   ## Lesson name           starts a lesson
+//   Learn: Title             a concept card; the lines below are its body
+//   > A key idea             a short concept card (consecutive lines join)
+//   Q: Question              multiple choice ("- wrong", "* right") or typed ("A: answer")
+//   Number: Question         an exact number ("A: 42 m", "A: 3.14 ± 0.01")
+//   Estimate: Question       a ballpark number, right within 30% ("A: 86400 seconds")
+//   Sort: Prompt             then "[Bucket] item" lines
+//   Order: Prompt            then "1. first", "2. second", … in the right order
+//   Match: Prompt            then "- left -> right" lines
+//   Fill: Text with [[blanks]] and [[either|or]]   ("Bank: word, word" for a word bank)
+//   Why: / Hint:             explanation and hint for the step above
+//   Given: label = value     shown above a Number or Estimate
+//   Step: …                  a worked-solution line for a Number or Estimate
+//
+// Returns a raw course; raw.notes lists lines that weren't understood.
+
+const QUICK_STEPS = { q: "question", question: "question", learn: "learn", number: "number", solve: "number", estimate: "estimate", sort: "sort", order: "order", match: "match", fill: "fill" };
 
 export function parseQuickCourse(text, fileName = "") {
   let title = "";
-  const lessons = [];
+  const description = [];
+  const units = [];
+  const notes = [];
+  let unit = null;
   let lesson = null;
-  let question = null;
+  let step = null;
   let field = null;
+  let started = false;
 
+  const ensureUnit = () => {
+    if (!unit) {
+      unit = { title: "", lessons: [] };
+      units.push(unit);
+    }
+    return unit;
+  };
   const ensureLesson = () => {
     if (!lesson) {
-      lesson = { id: `lesson-${lessons.length + 1}`, title: `Lesson ${lessons.length + 1}`, steps: [] };
-      lessons.push(lesson);
+      lesson = { title: `Lesson ${units.reduce((sum, entry) => sum + entry.lessons.length, 0) + 1}`, drafts: [] };
+      ensureUnit().lessons.push(lesson);
     }
     return lesson;
   };
-  const finishQuestion = () => {
-    if (question) {
-      ensureLesson().steps.push(quickStep(question, ensureLesson().steps.length));
-      question = null;
-      field = null;
+  const begin = (kind, first, lineNumber) => {
+    started = true;
+    step = { kind, line: lineNumber, prompt: first, title: "", body: [], options: [], answers: [], items: [], pairs: [], given: [], solution: [], answer: "", why: "", hint: "", bank: null };
+    ensureLesson().drafts.push(step);
+    field = kind === "learn" ? "title" : kind === "note" ? "body" : "prompt";
+    if (kind === "learn") {
+      step.title = first;
+      step.prompt = "";
+      field = "body";
+    }
+    if (kind === "note") {
+      step.body.push(first);
     }
   };
 
-  for (const rawLine of String(text).split(/\r?\n/)) {
+  String(text).split(/\r?\n/).forEach((rawLine, index) => {
+    const lineNumber = index + 1;
     const line = rawLine.trim();
     if (!line) {
-      continue;
+      // A blank line keeps a concept's paragraphs apart and ends any other field.
+      if (step && field === "body") {
+        step.body.push("");
+      } else if (field !== "description") {
+        field = null;
+      }
+      return;
     }
-    if (/^#\s+/.test(line) && !/^##/.test(line)) {
-      finishQuestion();
-      title = line.replace(/^#\s+/, "");
-    } else if (/^##\s+/.test(line)) {
-      finishQuestion();
-      lesson = { id: `lesson-${lessons.length + 1}`, title: line.replace(/^##\s+/, ""), steps: [] };
-      lessons.push(lesson);
-    } else if (/^q\s*:/i.test(line)) {
-      finishQuestion();
-      question = { prompt: line.replace(/^q\s*:\s*/i, ""), options: [], answers: [], answer: "", why: "" };
-      field = "prompt";
-    } else if (/^>\s*/.test(line)) {
-      finishQuestion();
-      const body = line.replace(/^>\s*/, "");
-      ensureLesson().steps.push({ id: `note-${ensureLesson().steps.length + 1}`, type: "concept", title: "Key idea", body });
-    } else if (question && /^[-*]\s+/.test(line)) {
-      const option = line.replace(/^[-*]\s+/, "");
-      question.options.push(option);
-      if (line.startsWith("*")) {
-        question.answers.push(option);
+    let match;
+    if ((match = line.match(/^#\s+(.+)/))) {
+      title = match[1].trim();
+      step = null;
+      field = "description";
+    } else if ((match = line.match(/^##\s+unit\s*:\s*(.+)/i))) {
+      started = true;
+      unit = { title: match[1].trim(), lessons: [] };
+      units.push(unit);
+      lesson = null;
+      step = null;
+      field = null;
+    } else if ((match = line.match(/^##\s+(.+)/))) {
+      started = true;
+      lesson = { title: match[1].trim(), drafts: [] };
+      ensureUnit().lessons.push(lesson);
+      step = null;
+      field = null;
+    } else if ((match = line.match(/^>\s?(.*)/))) {
+      if (step?.kind === "note" && field === "body") {
+        step.body.push(match[1]);
+      } else {
+        begin("note", match[1], lineNumber);
+      }
+    } else if ((match = line.match(/^(q|question|learn|number|solve|estimate|sort|order|match|fill)\s*:\s*(.*)/i))) {
+      begin(QUICK_STEPS[match[1].toLowerCase()], match[2].trim(), lineNumber);
+    } else if (step && (match = line.match(/^(why|hint|a|answer|bank|given|step|solution)\s*:\s*(.*)/i))) {
+      const key = match[1].toLowerCase();
+      const value = match[2].trim();
+      if (key === "why" || key === "hint") {
+        step[key] = value;
+        field = key;
+      } else if (key === "a" || key === "answer") {
+        step.answer = value;
+        field = "answer";
+      } else if (key === "bank") {
+        step.bank = value.split(/[,;]/).map((word) => word.trim()).filter(Boolean);
+        field = null;
+      } else if (key === "given") {
+        const [label, ...rest] = value.split(/\s*=\s*/);
+        step.given.push([label, rest.join(" = ") || ""]);
+        field = null;
+      } else {
+        step.solution.push(value);
+        field = null;
+      }
+    } else if (step?.kind === "question" && (match = line.match(/^([-*])\s+(.+)/))) {
+      step.options.push(match[2]);
+      if (match[1] === "*") {
+        step.answers.push(match[2]);
       }
       field = null;
-    } else if (question && /^a\s*:/i.test(line)) {
-      question.answer = line.replace(/^a\s*:\s*/i, "");
-      field = "answer";
-    } else if (question && /^why\s*:/i.test(line)) {
-      question.why = line.replace(/^why\s*:\s*/i, "");
-      field = "why";
-    } else if (question && field) {
-      question[field] = `${question[field]} ${line}`.trim();
+    } else if (step?.kind === "sort" && (match = line.match(/^\[(.+?)\]\s*(.+)/))) {
+      step.items.push({ text: match[2].trim(), bucket: match[1].trim() });
+      field = null;
+    } else if (step?.kind === "order" && (match = line.match(/^(?:\d+[.)]|[-*])\s+(.+)/))) {
+      step.items.push(match[1].trim());
+      field = null;
+    } else if (step?.kind === "match" && (match = line.match(/^(?:[-*]\s+)?(.+?)\s*(?:->|→|=>)\s*(.+)/))) {
+      step.pairs.push([match[1].trim(), match[2].trim()]);
+      field = null;
+    } else if (field === "description" && !started) {
+      description.push(line);
+    } else if (step && field === "body") {
+      step.body.push(rawLine.replace(/^\s{0,3}/, ""));
+    } else if (step && field) {
+      step[field] = `${step[field]} ${line}`.trim();
+    } else {
+      notes.push({ line: lineNumber, message: `Not part of any step: “${line.slice(0, 60)}”. Start steps with Q:, Learn:, Number:, Sort:, …` });
     }
-  }
-  finishQuestion();
+  });
 
-  const usable = lessons.filter((entry) => entry.steps.length > 0);
-  if (usable.length === 0) {
-    throw new Error("No questions found. Start each one with \"Q:\" — see courses/README.md for the quick format.");
-  }
   const courseTitle = title || titleFromFile(fileName) || "My course";
+  const builtUnits = units
+    .map((entry) => ({
+      // Without a "## Unit:" line the id stays fixed, so renaming the course keeps progress.
+      id: slugify(entry.title) || "lessons",
+      title: entry.title || courseTitle,
+      lessons: entry.lessons
+        .map((draftLesson) => ({ id: slugify(draftLesson.title), title: draftLesson.title, steps: draftLesson.drafts.map((draft) => quickStep(draft, notes)).filter(Boolean) }))
+        .filter((entryLesson) => entryLesson.steps.length > 0)
+    }))
+    .filter((entry) => entry.lessons.length > 0);
+  if (builtUnits.length === 0) {
+    throw new Error("No steps found yet. Start one with Q:, Learn:, Number:, Sort:, Order:, Match:, or Fill: (see the format guide).");
+  }
+  const count = builtUnits.reduce((sum, entry) => sum + entry.lessons.reduce((inner, entryLesson) => inner + entryLesson.steps.length, 0), 0);
   return {
     id: slugify(courseTitle),
     title: courseTitle,
-    description: `${usable.reduce((sum, entry) => sum + entry.steps.length, 0)} cards from ${fileName || "pasted notes"}.`,
-    units: [{ id: "cards", title: courseTitle, lessons: usable }]
+    description: description.join(" ") || `${count} steps from ${fileName || "your notes"}.`,
+    units: builtUnits,
+    notes
   };
 }
 
-function quickStep(question, index) {
-  const id = `q-${index + 1}`;
-  if (question.options.length >= 2) {
-    return {
-      id,
-      type: "choice",
-      prompt: question.prompt,
-      options: question.options,
-      answer: question.answers.length > 1 ? question.answers : question.answers[0] ?? null,
-      why: question.why || (question.answers.length ? `Answer: ${question.answers.join(", ")}.` : "No answer marked — grade yourself.")
-    };
-  }
-  return {
-    id,
-    type: "text",
-    prompt: question.prompt,
-    model: question.answer || undefined,
-    concepts: question.answer ? modelConcepts(question.answer) : undefined,
-    why: question.why || (question.answer ? `Answer: ${question.answer}` : "Grade yourself.")
+// A drafted quick step → a course step (or null, with a note saying why).
+function quickStep(draft, notes) {
+  const id = slugify(draft.prompt || draft.title || draft.body.join(" ")).slice(0, 48) || `${draft.kind}-${draft.line}`;
+  const extra = { ...(draft.why && { why: draft.why }), ...(draft.hint && { hint: draft.hint }) };
+  const skip = (message) => {
+    notes.push({ line: draft.line, message });
+    return null;
   };
+  const body = draft.body.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+
+  switch (draft.kind) {
+    case "learn":
+      return { id, type: "concept", title: draft.title, body };
+    case "note":
+      return { id, type: "concept", title: "Key idea", body };
+    case "question":
+      if (draft.options.length >= 2) {
+        return {
+          id,
+          type: "choice",
+          prompt: draft.prompt,
+          options: draft.options,
+          answer: draft.answers.length > 1 ? draft.answers : draft.answers[0] ?? null,
+          ...extra,
+          why: draft.why || (draft.answers.length ? `Answer: ${draft.answers.join(", ")}.` : "No answer marked, so you'll grade yourself.")
+        };
+      }
+      if (draft.options.length === 1) {
+        return skip("A multiple-choice question needs at least two options.");
+      }
+      return {
+        id,
+        type: "text",
+        prompt: draft.prompt,
+        model: draft.answer || undefined,
+        concepts: draft.answer ? modelConcepts(draft.answer) : undefined,
+        ...extra,
+        why: draft.why || (draft.answer ? `Answer: ${draft.answer}` : "Compare with what you know and grade yourself.")
+      };
+    case "number": {
+      const parsed = splitNumber(draft.answer);
+      if (!parsed) {
+        return skip(`“${draft.prompt.slice(0, 40)}” needs a numeric answer, like “A: 42” or “A: 3.14 ± 0.01 m”.`);
+      }
+      return { id, type: "number", prompt: draft.prompt, answer: parsed.value, ...(parsed.tolerance && { tolerance: parsed.tolerance }), ...(parsed.unit && { unit: parsed.unit }), ...(draft.given.length && { given: draft.given }), ...(draft.solution.length && { solution: draft.solution }), ...extra };
+    }
+    case "estimate": {
+      const value = parseQuantity(draft.answer);
+      if (!(value > 0)) {
+        return skip(`“${draft.prompt.slice(0, 40)}” needs a positive number, like “A: 86400 seconds”.`);
+      }
+      const unit = draft.answer.replace(/^\s*~?\s*[\d.,]+(?:e[+-]?\d+)?\s*(?:k|m|mm|b|bn|t|thousand|million|billion|trillion)?\b\s*/i, "").trim();
+      return { id, type: "estimate", prompt: draft.prompt, answer: value, unit, ...(draft.given.length && { given: draft.given }), ...(draft.solution.length && { solution: draft.solution }), ...extra };
+    }
+    case "sort": {
+      const buckets = [...new Set(draft.items.map((item) => item.bucket))];
+      if (buckets.length < 2 || draft.items.length < 2) {
+        return skip("A Sort needs items in at least two buckets, written “[Bucket] item”.");
+      }
+      return { id, type: "sort", prompt: draft.prompt, buckets, items: draft.items, ...extra };
+    }
+    case "order":
+      if (draft.items.length < 2) {
+        return skip("An Order needs at least two numbered lines (“1. first”).");
+      }
+      return { id, type: "order", prompt: draft.prompt, items: draft.items, ...extra };
+    case "match":
+      if (draft.pairs.length < 2) {
+        return skip("A Match needs at least two “left -> right” lines.");
+      }
+      return { id, type: "match", prompt: draft.prompt, pairs: draft.pairs, ...extra };
+    case "fill":
+      if (!/\[\[[^\]]+\]\]/.test(draft.prompt)) {
+        return skip("A Fill needs at least one [[blank]].");
+      }
+      return { id, type: "fill", text: draft.prompt, ...(draft.bank && { bank: draft.bank }), ...extra };
+    default:
+      return null;
+  }
+}
+
+// "42", "-3/4 m", "3.14 ± 0.01", "9.8 +/- 0.1 m/s²" → { value, tolerance, unit }
+function splitNumber(text) {
+  const match = String(text || "").trim().match(/^(-?\d[\d,]*(?:\.\d+)?(?:e[+-]?\d+)?(?:\s+\d+\s*\/\s*\d+|\s*\/\s*\d+)?|-?\.\d+)\s*(?:(?:±|\+\/-)\s*(\d*\.?\d+))?\s*(.*)$/i);
+  const value = match ? parseNumber(match[1]) : null;
+  if (value == null) {
+    return null;
+  }
+  return { value, tolerance: match[2] ? Number(match[2]) : null, unit: match[3].trim() };
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────

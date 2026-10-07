@@ -1,31 +1,34 @@
-// Home: pick up where you left off. The next lesson front and centre, the
-// games you chose, today's goal and quests, and a guilt-free catch-up after a
-// break. Answers "where am I, how am I doing, what next" at a glance.
+// Home: pick up where you left off in the subject you're studying. The next
+// lesson front and centre, the games you chose, your other subjects, today's
+// goal and quests, and a guilt-free catch-up after a break. Answers "where am
+// I, how am I doing, what next" at a glance.
 
 import { h, append } from "../../lib/dom.js";
 import { icon } from "../icons.js";
 import { button, ring, meter, plural, emptyState } from "../components.js";
 import { progress, persist } from "../../state/progress.js";
-import { catalog, getLesson, getUnit } from "../../state/catalog.js";
-import { todayStats, nextLessonKey, courseStats, isLessonComplete, isLessonUnlocked, levelInfo } from "../../state/learner.js";
+import { catalog, getLesson, getUnit, currentSubject, setCurrentSubject, practiceScope } from "../../state/catalog.js";
+import { todayStats, courseStats, subjectStats, subjectNextLesson, isLessonComplete, isLessonUnlocked, levelInfo, dueCount } from "../../state/learner.js";
 import { todaysQuests } from "../../state/quests.js";
 import { lessonPlay, reviewPlay } from "../../state/sessions.js";
 import { GAMES } from "../../domain/games.js";
 import { startPlay } from "../player.js";
 import { navigate, refresh, href } from "../router.js";
 import { enabledGames, gameCard } from "./games.js";
+import { subjectBadge, subjectDialog } from "./subjects.js";
 
 export function renderHome(root) {
   const page = h("div", { class: "page home" });
   root.append(page);
-  const course = catalog().courses[0];
+  const subject = currentSubject();
 
-  if (!course) {
-    page.append(emptyState({ iconName: "book", title: "No courses yet", body: "Drop a course file onto this window, or add one from the Library.", actions: [button("Open Library", { variant: "go", onClick: () => navigate("library") })] }));
+  if (!subject) {
+    page.append(emptyState({ iconName: "grid", title: "No subjects yet", body: "Create a subject, then write or import a course for it.", actions: [button("New subject", { variant: "go", iconName: "plus", onClick: () => subjectDialog() })] }));
     return;
   }
 
   const stats = todayStats();
+  const due = dueCount(practiceScope());
   const now = new Date();
   const hour = now.getHours();
   const greeting = hour < 5 ? "Up late?" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
@@ -39,19 +42,21 @@ export function renderHome(root) {
     )
   );
 
-  if (stats.lapsedDays != null && stats.lapsedDays >= 3 && stats.due > 0) {
+  if (stats.lapsedDays != null && stats.lapsedDays >= 3 && due > 0) {
     page.append(
       h(
         "div",
         { class: "welcome-back" },
         icon("sparkle", { size: 20 }),
-        h("div", null, h("strong", { text: "Welcome back! " }), `No need to catch up on everything — here's a short review. The other ${Math.max(0, stats.due - 6)} cards will spread over the next few days.`),
-        button("3-minute catch-up", { variant: "go", onClick: () => startPlay(reviewPlay({ kind: "due", size: 6 }), { returnTo: "home" }) })
+        h("div", null, h("strong", { text: "Welcome back! " }), `No need to catch up on everything — here's a short review. The other ${Math.max(0, due - 6)} cards will spread over the next few days.`),
+        button("3-minute catch-up", { variant: "go", onClick: () => startPlay(reviewPlay({ kind: "due", size: 6, scope: practiceScope() }), { returnTo: "home" }) })
       )
     );
   }
 
   const games = enabledGames();
+  const scope = practiceScope();
+  const others = catalog().subjects.filter((entry) => entry.id !== subject.id);
   page.append(
     h(
       "div",
@@ -59,12 +64,31 @@ export function renderHome(root) {
       h(
         "div",
         { class: "home-main" },
-        continueCard(course),
+        continueCard(subject),
         h(
           "section",
           { class: "home-section" },
-          h("div", { class: "section-head" }, h("h2", { text: "Your games" }), h("a", { class: "section-link", href: href("practice") }, "All games", icon("arrowRight", { size: 14 }))),
+          h("div", { class: "section-head" }, h("h2", null, "Your games", h("span", { class: "section-scope", text: scope ? ` · ${subject.title}` : " · All subjects" })), h("a", { class: "section-link", href: href("practice") }, "All games", icon("arrowRight", { size: 14 }))),
           h("div", { class: "game-grid" }, GAMES.filter((game) => game.id !== "lessons" && games.has(game.id)).map((game) => gameCard(game)))
+        ),
+        h(
+          "section",
+          { class: "home-section" },
+          h("div", { class: "section-head" }, h("h2", { text: others.length ? "Your other subjects" : "Learn something else" }), h("a", { class: "section-link", href: href("subjects") }, "All subjects", icon("arrowRight", { size: 14 }))),
+          h(
+            "div",
+            { class: "subject-strip" },
+            others.map((entry) => {
+              const entryStats = subjectStats(entry.id);
+              return h(
+                "button",
+                { type: "button", class: "subject-chip", style: { "--subject": entry.color }, title: `Study ${entry.title}`, onClick: () => { setCurrentSubject(entry.id); refresh(); } },
+                subjectBadge(entry, { size: 18 }),
+                h("span", { class: "subject-chip-text" }, h("strong", { text: entry.title }), h("span", { text: entryStats.total ? `${entryStats.done}/${entryStats.total} lessons` : "No courses yet" }))
+              );
+            }),
+            h("button", { type: "button", class: "subject-chip is-new", onClick: () => subjectDialog() }, h("span", { class: "subject-badge is-plain" }, icon("plus", { size: 18 })), h("span", { class: "subject-chip-text" }, h("strong", { text: "New subject" }), h("span", { text: "Math, science, anything" })))
+          )
         )
       ),
       h("aside", { class: "home-side" }, goalCard(stats), questsCard(), planCard())
@@ -81,27 +105,46 @@ function levelPill() {
   return h("a", { class: "pill pill-level", href: href("progress"), title: `${level.into}/${level.span} XP into level ${level.level}` }, h("span", { class: "level-badge", text: String(level.level) }), h("span", { class: "pill-meter" }, meter(level.progress, { tone: "brand", label: "Level progress" })));
 }
 
-// The next lesson, with a little window of the path around it.
-function continueCard(course) {
-  const stats = courseStats(course.id);
-  const nextKey = nextLessonKey(course.id);
-  const card = h("section", { class: "continue", style: { "--course": course.color } });
+// The next lesson in the current subject, with a little window of the path
+// around it.
+function continueCard(subject) {
+  const card = h("section", { class: "continue", style: { "--course": subject.color } });
+  const stats = subjectStats(subject.id);
+  const next = subjectNextLesson(subject.id);
 
-  if (!nextKey) {
+  if (stats.courses === 0 || stats.total === 0) {
     append(
       card,
-      h("p", { class: "eyebrow", text: course.title }),
-      h("h2", { class: "continue-title", text: "Course complete!" }),
-      h("p", { class: "continue-sub", text: "Every lesson done. Put it all together in the Design Lab, or keep it fresh with reviews." }),
-      h("div", { class: "continue-actions" }, button("Open the Design Lab", { variant: "light", size: "lg", onClick: () => navigate("lab") }))
+      h("p", { class: "eyebrow", text: subject.title }),
+      h("h2", { class: "continue-title", text: "Add your first course" }),
+      h("p", { class: "continue-sub", text: `${subject.title} doesn't have any lessons yet. Write a course in plain text, or import one you already have.` }),
+      h(
+        "div",
+        { class: "continue-actions" },
+        button("Write a course", { variant: "light", size: "lg", iconName: "pencil", onClick: () => navigate("write", subject.id) }),
+        h("a", { class: "continue-link", href: href("subject", subject.id) }, "More ways to add")
+      )
     );
     return card;
   }
 
-  const lesson = getLesson(nextKey);
+  if (!next) {
+    append(
+      card,
+      h("p", { class: "eyebrow", text: subject.title }),
+      h("h2", { class: "continue-title", text: "Every lesson done!" }),
+      h("p", { class: "continue-sub", text: "Keep it fresh with reviews and games, take on a project, or start another subject." }),
+      h("div", { class: "continue-actions" }, button("Open the subject", { variant: "light", size: "lg", onClick: () => navigate("subject", subject.id) }))
+    );
+    return card;
+  }
+
+  const { course, lessonKey } = next;
+  const lesson = getLesson(lessonKey);
   const unit = getUnit(lesson.unitKey);
-  const index = course.lessonKeys.indexOf(nextKey);
+  const index = course.lessonKeys.indexOf(lessonKey);
   const window = course.lessonKeys.slice(Math.max(0, index - 2), Math.min(course.lessonKeys.length, index + 3));
+  const cStats = courseStats(course.id);
 
   append(
     card,
@@ -111,15 +154,15 @@ function continueCard(course) {
     h(
       "div",
       { class: "mini-path", "aria-hidden": "true" },
-      window.map((key) => h("span", { class: ["mini-node", isLessonComplete(key) && "is-done", key === nextKey && "is-current", !isLessonUnlocked(key) && "is-locked"] }, icon(isLessonComplete(key) ? "check" : key === nextKey ? "play2" : isLessonUnlocked(key) ? "book" : "lock", { size: 14 })))
+      window.map((key) => h("span", { class: ["mini-node", isLessonComplete(key) && "is-done", key === lessonKey && "is-current", !isLessonUnlocked(key) && "is-locked"] }, icon(isLessonComplete(key) ? "check" : key === lessonKey ? "play2" : isLessonUnlocked(key) ? "book" : "lock", { size: 14 })))
     ),
     h(
       "div",
       { class: "continue-actions" },
-      button(stats.done === 0 ? "Start learning" : "Continue", { variant: "light", size: "lg", iconName: "play2", onClick: () => startPlay(lessonPlay(nextKey), { returnTo: "home" }) }),
+      button(cStats.done === 0 ? "Start learning" : "Continue", { variant: "light", size: "lg", iconName: "play2", onClick: () => startPlay(lessonPlay(lessonKey), { returnTo: "home" }) }),
       h("a", { class: "continue-link", href: href("course", course.id) }, "View the path")
     ),
-    h("div", { class: "continue-progress" }, meter(stats.progress, { tone: "light", label: "Course progress" }), h("span", { text: `${stats.done}/${stats.total} lessons · ${lesson.minutes} min` }))
+    h("div", { class: "continue-progress" }, meter(cStats.progress, { tone: "light", label: "Course progress" }), h("span", { text: `${cStats.done}/${cStats.total} lessons · ${lesson.minutes} min` }))
   );
   return card;
 }

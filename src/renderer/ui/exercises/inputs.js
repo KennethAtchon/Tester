@@ -1,11 +1,11 @@
-// Exercise kit, part 2: estimate, fill, text, api, code. Same interface as
+// Exercise kit, part 2: estimate, number, fill, text, api, code. Same interface as
 // basic.js (el, ready, check, show, explain, autoHint).
 
 import { h } from "../../lib/dom.js";
 import { rich } from "../../lib/markup.js";
 import { icon } from "../icons.js";
 import { shuffled } from "./basic.js";
-import { parseQuantity, gradeEstimate, formatQuantity, parseFill, gradeFill, gradeApi, HTTP_METHODS } from "../../domain/grading.js";
+import { parseQuantity, gradeEstimate, formatQuantity, parseNumber, gradeNumber, formatNumber, parseFill, gradeFill, gradeApi, HTTP_METHODS } from "../../domain/grading.js";
 import { gradeText, tokenize } from "../../domain/textGrader.js";
 import { renderCodeControl } from "../runner.js";
 import { mountCodeEditors } from "../codeEditor.js";
@@ -20,7 +20,7 @@ export function estimate(step, ctx) {
     class: "estimate-input",
     inputmode: "decimal",
     placeholder: "e.g. 1200, 1.2k, 3M",
-    "aria-label": `Your estimate in ${step.unit}`,
+    "aria-label": step.unit ? `Your estimate in ${step.unit}` : "Your estimate",
     autocomplete: "off",
     onInput: (event) => {
       state.value = event.target.value;
@@ -65,9 +65,76 @@ export function estimate(step, ctx) {
         "div",
         { class: "explain-block" },
         numberLine(value, step.answer, step.unit),
-        h("p", { class: "estimate-verdict" }, "You said ", h("strong", { text: `${formatQuantity(value)} ${step.unit}` }), " · answer ", h("strong", { text: `≈ ${formatQuantity(step.answer)} ${step.unit}` }), off && ` · ${off}`),
-        h("div", { class: "explain-label", text: "Worked solution" }),
-        h("ol", { class: "solution" }, (step.solution || []).map((line) => h("li", null, rich(line, { inline: true }))))
+        h("p", { class: "estimate-verdict" }, "You said ", h("strong", { text: withUnit(formatQuantity(value), step.unit) }), " · answer ", h("strong", { text: `≈ ${withUnit(formatQuantity(step.answer), step.unit)}` }), off && ` · ${off}`),
+        step.solution?.length && h("div", { class: "explain-label", text: "Worked solution" }),
+        step.solution?.length && h("ol", { class: "solution" }, step.solution.map((line) => h("li", null, rich(line, { inline: true }))))
+      );
+    },
+    autoHint() {
+      return step.solution?.[0] ? `Start here: ${step.solution[0]}` : null;
+    }
+  };
+}
+
+function withUnit(text, unit) {
+  return unit ? `${text} ${unit}` : text;
+}
+
+// ── number: an exact answer (math, physics, chemistry…) ────────────────────
+
+export function number(step, ctx) {
+  const state = { value: "" };
+  const input = h("input", {
+    type: "text",
+    class: "estimate-input",
+    inputmode: "decimal",
+    placeholder: "Your answer",
+    "aria-label": step.unit ? `Your answer in ${step.unit}` : "Your answer",
+    autocomplete: "off",
+    onInput: (event) => {
+      state.value = event.target.value;
+      ctx.onChange();
+    },
+    onKeydown: (event) => {
+      if (event.key === "Enter" && parseNumber(state.value) != null) {
+        event.preventDefault();
+        ctx.submit();
+      }
+    }
+  });
+
+  const el = h(
+    "div",
+    { class: "estimate" },
+    step.given?.length &&
+      h("div", { class: "given" }, h("div", { class: "given-title", text: "Given" }), h("dl", null, step.given.map(([label, value]) => [h("dt", null, rich(label, { inline: true })), h("dd", null, rich(String(value), { inline: true }))]))),
+    h("label", { class: "estimate-field" }, input, step.unit && h("span", { class: "estimate-unit", text: step.unit })),
+    h("p", { class: "muted small", text: "Whole numbers, decimals, negatives, and fractions like 3/4 all work." })
+  );
+
+  return {
+    el,
+    focus: () => input.focus(),
+    ready: () => parseNumber(state.value) != null,
+    check() {
+      const value = parseNumber(state.value);
+      const result = gradeNumber(step, value);
+      return { ...result, response: withUnit(state.value.trim(), step.unit), detail: { value } };
+    },
+    show(result) {
+      input.disabled = true;
+      input.classList.add(result.correct ? "is-right" : "is-wrong");
+    },
+    explain(result) {
+      if (result.correct && !step.solution?.length) {
+        return null;
+      }
+      return h(
+        "div",
+        { class: "explain-block" },
+        !result.correct && h("p", { class: "estimate-verdict" }, "Answer: ", h("strong", { text: withUnit(formatNumber([].concat(step.answer)[0]), step.unit) })),
+        step.solution?.length && h("div", { class: "explain-label", text: "Worked solution" }),
+        step.solution?.length && h("ol", { class: "solution" }, step.solution.map((line) => h("li", null, rich(line, { inline: true }))))
       );
     },
     autoHint() {

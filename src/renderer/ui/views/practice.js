@@ -1,11 +1,13 @@
-// Practice: every game in one place. Pick what you feel like playing, and
-// choose which games appear on Home. All of them feed the same memory model,
-// so what you learn in one shows up in the others.
+// Practice: every game in one place. Pick what you feel like playing, choose
+// which games appear on Home, and whether they draw from the subject you're
+// studying or from every subject. All of them feed the same memory model, so
+// what you learn in one shows up in the others.
 
 import { h } from "../../lib/dom.js";
 import { icon } from "../icons.js";
-import { pageHead } from "../components.js";
-import { progress, persist } from "../../state/progress.js";
+import { pageHead, segmented } from "../components.js";
+import { progress, persist, settings } from "../../state/progress.js";
+import { catalog, currentSubject } from "../../state/catalog.js";
 import { GAMES } from "../../domain/games.js";
 import { refresh } from "../router.js";
 import { enabledGames, gameCard } from "./games.js";
@@ -15,7 +17,31 @@ export function renderPractice(root) {
   root.append(page);
   const enabled = enabledGames();
 
-  page.append(pageHead({ eyebrow: "Practice", title: "Choose how to play", sub: "Every game runs on the same learning engine, so there's no wrong choice. Pin the ones you like to Home." }));
+  const subject = currentSubject();
+  const withContent = catalog().subjects.filter((entry) => entry.courseIds.length > 0);
+  const scopeControl =
+    subject && withContent.length > 1
+      ? h(
+          "div",
+          { class: "scope-control" },
+          h("span", { class: "muted small", text: "Questions from" }),
+          segmented(
+            [
+              { value: "subject", label: subject.title },
+              { value: "all", label: "All subjects" }
+            ],
+            settings().practiceScope,
+            (value) => {
+              settings().practiceScope = value;
+              persist();
+              refresh();
+            },
+            { label: "Which subjects games draw from" }
+          )
+        )
+      : null;
+
+  page.append(pageHead({ eyebrow: "Practice", title: "Choose how to play", sub: "Every game runs on the same learning engine, so there's no wrong choice. Pin the ones you like to Home.", actions: scopeControl ? [scopeControl] : [] }));
 
   page.append(
     h(

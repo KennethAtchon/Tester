@@ -7,33 +7,35 @@ import { h } from "../../lib/dom.js";
 import { icon } from "../icons.js";
 import { button, meter, chip, pct, emptyState } from "../components.js";
 import { progress } from "../../state/progress.js";
-import { catalog, getCourse, getLesson, getUnit } from "../../state/catalog.js";
+import { getCourse, getLesson, getUnit, getSubject, coursesIn, currentSubjectId } from "../../state/catalog.js";
 import { courseStats, unitStats, nextLessonKey, isLessonComplete, isLessonUnlocked, isPlacedOut, lessonRecord, unlockLesson, masteryOf } from "../../state/learner.js";
 import { lessonPlay, bossPlay, bossAvailable, placementPlay } from "../../state/sessions.js";
 import { startPlay } from "../player.js";
-import { navigate } from "../router.js";
+import { navigate, href } from "../router.js";
 import { projectCard } from "./lab.js";
 
 const OFFSETS = [0, 1, 2, 1, 0, -1, -2, -1];
 
 export function renderCourse(root, [courseId]) {
-  const course = getCourse(courseId) || catalog().courses[0];
+  const course = getCourse(courseId) || coursesIn(currentSubjectId())[0];
   const page = h("div", { class: "page course-page" });
   root.append(page);
   if (!course) {
-    page.append(emptyState({ iconName: "map", title: "No course", body: "Add one from the Library.", actions: [button("Library", { onClick: () => navigate("library") })] }));
+    page.append(emptyState({ iconName: "map", title: "No course here", body: "Pick a subject and add a course to it.", actions: [button("Subjects", { variant: "go", onClick: () => navigate("subjects") })] }));
     return;
   }
+  const subject = getSubject(course.subjectId);
 
   const stats = courseStats(course.id);
   const next = nextLessonKey(course.id);
   const returnTo = `course/${course.id}`;
 
   page.append(
+    h("a", { class: "back-link", href: href("subject", subject.id) }, icon("arrowLeft", { size: 16 }), subject.title),
     h(
       "header",
       { class: "course-hero", style: { "--course": course.color } },
-      h("p", { class: "eyebrow", text: course.source === "builtin" ? "Course" : "Your course" }),
+      h("p", { class: "eyebrow", text: course.source === "builtin" ? `${subject.title} · Course` : `${subject.title} · Your course` }),
       h("h1", { class: "course-title", text: course.title }),
       course.tagline && h("p", { class: "course-tagline", text: course.tagline }),
       h("div", { class: "course-progress" }, meter(stats.progress, { tone: "light", label: "Course progress" }), h("span", { text: `${stats.done}/${stats.total} lessons${stats.labsTotal ? ` · ${stats.labs}/${stats.labsTotal} designs` : ""}` })),
@@ -41,7 +43,8 @@ export function renderCourse(root, [courseId]) {
         "div",
         { class: "course-actions" },
         next && button(stats.done ? "Continue" : "Start", { variant: "light", size: "lg", iconName: "play2", onClick: () => startPlay(lessonPlay(next), { returnTo }) }),
-        stats.done === 0 && !progress().profile.placementDone && button("Place me", { variant: "ghost-light", iconName: "compass", title: "A two-minute check that unlocks units you already know", onClick: () => startPlay(placementPlay(course.id), { returnTo }) })
+        stats.done === 0 && !progress().profile.placementDone && placementPlay(course.id).steps.length >= 4 && button("Place me", { variant: "ghost-light", iconName: "compass", title: "A two-minute check that unlocks units you already know", onClick: () => startPlay(placementPlay(course.id), { returnTo }) }),
+        course.source === "user" && button("Edit course", { variant: "ghost-light", iconName: "pencil", onClick: () => navigate("write", subject.id, course.id) })
       )
     )
   );

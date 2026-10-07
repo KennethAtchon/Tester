@@ -3,12 +3,12 @@
 // mistake notebook and Markdown exports.
 
 import { concept, choice, sort, order, match } from "./basic.js";
-import { estimate, fill, text, api, code } from "./inputs.js";
+import { estimate, number, fill, text, api, code } from "./inputs.js";
 import { build } from "./build.js";
 import { plain } from "../../lib/markup.js";
-import { choiceAnswers, formatQuantity, parseFill } from "../../domain/grading.js";
+import { choiceAnswers, formatQuantity, formatNumber, parseFill } from "../../domain/grading.js";
 
-const FACTORIES = { concept, choice, sort, order, match, estimate, fill, text, api, build, code };
+const FACTORIES = { concept, choice, sort, order, match, estimate, number, fill, text, api, build, code };
 
 export function createExercise(step, ctx) {
   const factory = FACTORIES[step.type];
@@ -25,6 +25,7 @@ export const TYPE_LABELS = {
   order: "Sequence",
   match: "Match",
   estimate: "Estimate",
+  number: "Solve",
   fill: "Fill in",
   text: "Explain",
   api: "Design the API",
@@ -50,7 +51,9 @@ export function answerSummary(step) {
     case "match":
       return step.pairs.map((pair) => `${plain(pair[0])} → ${plain(pair[1])}`).join("; ");
     case "estimate":
-      return `≈ ${formatQuantity(step.answer)} ${step.unit}`;
+      return `≈ ${formatQuantity(step.answer)}${step.unit ? ` ${step.unit}` : ""}`;
+    case "number":
+      return `${formatNumber([].concat(step.answer)[0])}${step.unit ? ` ${step.unit}` : ""}`;
     case "fill":
       return parseFill(step.text).map((part) => (part.blank == null ? plain(part.text) : `[${part.answers[0]}]`)).join("");
     case "text":

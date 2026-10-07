@@ -1,8 +1,9 @@
 // Builds "plays" — the ordered steps plus rules for each way of learning:
 // lessons, Design Lab projects, spaced review, and the games. The player
 // runs any of them; only the options differ (timer, lives, combo, feedback).
+// Review and the games take a scope: a subjectId, or null for every subject.
 
-import { catalog, getLesson, getItem, getUnit, getCourse } from "./catalog.js";
+import { catalog, getLesson, getItem, getUnit, getCourse, inScope } from "./catalog.js";
 import { progress, settings } from "./progress.js";
 import { dueItemKeys, seenItemKeys, todayCounts, itemKnowledge, isReviewable, isLessonComplete, isLessonUnlocked } from "./learner.js";
 import { retrievability } from "../domain/fsrs.js";
@@ -65,7 +66,7 @@ export function projectPlay(projectKey, { interview = false } = {}) {
 }
 
 // Spaced review. kind: due | ahead | mistakes
-export function reviewPlay({ kind = "due", size = null } = {}) {
+export function reviewPlay({ kind = "due", size = null, scope = null } = {}) {
   const target = size ?? settings().sessionSize;
   const now = Date.now();
   let keys = [];
@@ -74,21 +75,21 @@ export function reviewPlay({ kind = "due", size = null } = {}) {
 
   if (kind === "due") {
     const cap = Math.max(0, settings().maxReviewsPerDay - todayCounts(now).reviewsToday);
-    keys = dueItemKeys(now).slice(0, Math.min(cap, target));
+    keys = dueItemKeys(now, scope).slice(0, Math.min(cap, target));
     keys = withQuickWin(keys, now);
   } else if (kind === "mistakes") {
     title = "Mistake drill";
     subtitle = "Your own errors, re-asked. Fix them on a later day to clear them.";
     keys = Object.values(progress().mistakes)
-      .filter((mistake) => !mistake.resolvedAt && getItem(mistake.item) && getItem(mistake.item).kind === "lesson")
+      .filter((mistake) => !mistake.resolvedAt && getItem(mistake.item)?.kind === "lesson" && inScope(getItem(mistake.item), scope))
       .sort((a, b) => Number(b.hyper) - Number(a.hyper) || b.lastTs - a.lastTs)
       .map((mistake) => mistake.item)
       .slice(0, Math.max(target, 15));
   } else {
     title = "Practice ahead";
     subtitle = "Nothing is due. These are your weakest cards.";
-    const due = new Set(dueItemKeys(now));
-    keys = seenItemKeys((item) => isReviewable(item) && !due.has(item.key))
+    const due = new Set(dueItemKeys(now, scope));
+    keys = seenItemKeys((item) => isReviewable(item) && inScope(item, scope) && !due.has(item.key))
       .map((key) => ({ key, knowledge: itemKnowledge(key, now) }))
       .sort((a, b) => a.knowledge - b.knowledge)
       .slice(0, target)
@@ -98,6 +99,7 @@ export function reviewPlay({ kind = "due", size = null } = {}) {
   return {
     id: newId(),
     kind: "review",
+    scope,
     title,
     subtitle,
     steps: interleave(keys).map((key) => fromItem(key, "review")),
@@ -106,8 +108,8 @@ export function reviewPlay({ kind = "due", size = null } = {}) {
 }
 
 // 60 seconds of quick single-answer questions you've already seen.
-export function lightningPlay() {
-  const known = seenItemKeys((item) => item.kind === "lesson" && quickChoice(item.step));
+export function lightningPlay({ scope = null } = {}) {
+  const known = seenItemKeys((item) => item.kind === "lesson" && inScope(item, scope) && quickChoice(item.step));
   const sorted = known
     .map((key) => ({ key, sort: (progress().items[key]?.lastCorrect ? 0 : 1) + Math.random() }))
     .sort((a, b) => a.sort - b.sort)
@@ -115,6 +117,7 @@ export function lightningPlay() {
   return {
     id: newId(),
     kind: "lightning",
+    scope,
     title: "Lightning round",
     subtitle: "60 seconds. Every right answer builds your combo.",
     steps: sorted.slice(0, 60).map((key) => fromItem(key, "lightning")),
@@ -128,23 +131,24 @@ function quickChoice(step) {
 }
 
 // Drag-and-drop puzzles from lessons you've reached.
-export function arcadePlay() {
+export function arcadePlay({ scope = null } = {}) {
   const types = new Set(["sort", "match", "order"]);
-  const pool = [...catalog().items.values()].filter((item) => item.kind === "lesson" && types.has(item.step.type) && (progress().items[item.key] || isLessonUnlocked(item.lessonKey)));
+  const pool = [...catalog().items.values()].filter((item) => item.kind === "lesson" && inScope(item, scope) && types.has(item.step.type) && (progress().items[item.key] || isLessonUnlocked(item.lessonKey)));
   const picked = shuffle(pool).slice(0, 6).map((item) => item.key);
   return {
     id: newId(),
     kind: "arcade",
+    scope,
     title: "Sort & Match",
-    subtitle: "Puzzles from across the course, mixed up.",
+    subtitle: "Puzzles from across your lessons, mixed up.",
     steps: interleave(picked).map((key) => fromItem(key, "arcade")),
     options: { combo: true, game: true, minSteps: 1 }
   };
 }
 
 // Five estimation problems, least recently practiced first.
-export function estimationPlay() {
-  const pool = [...catalog().items.values()].filter((item) => item.step.type === "estimate");
+export function estimationPlay({ scope = null } = {}) {
+  const pool = [...catalog().items.values()].filter((item) => item.step.type === "estimate" && inScope(item, scope));
   const ranked = pool
     .map((item) => ({ key: item.key, last: progress().items[item.key]?.lastReview ?? 0, sort: Math.random() }))
     .sort((a, b) => a.last - b.last || a.sort - b.sort)
@@ -153,6 +157,7 @@ export function estimationPlay() {
   return {
     id: newId(),
     kind: "estimation",
+    scope,
     title: "Estimation dojo",
     subtitle: "Scored by how close you get. Within 30% is a hit.",
     steps: ranked.map((key) => fromItem(key, "estimation")),
@@ -247,6 +252,6 @@ export function shuffle(list) {
   return copy;
 }
 
-export function openMistakeCount() {
-  return Object.values(progress().mistakes).filter((mistake) => !mistake.resolvedAt && getItem(mistake.item)).length;
+export function openMistakeCount(scope = null) {
+  return Object.values(progress().mistakes).filter((mistake) => !mistake.resolvedAt && getItem(mistake.item) && inScope(getItem(mistake.item), scope)).length;
 }

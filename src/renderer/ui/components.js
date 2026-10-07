@@ -194,3 +194,89 @@ export function shadeByMastery(element, value) {
 export function plural(count, noun, pluralNoun = `${noun}s`) {
   return `${count} ${count === 1 ? noun : pluralNoun}`;
 }
+
+// A modal dialog: Esc, the close button, or a click outside closes it.
+export function openDialog({ title, body, actions = [], className = null, onClose = null }) {
+  const previous = document.activeElement;
+  const backdrop = h("div", { class: "dialog-backdrop" });
+  const close = () => {
+    document.removeEventListener("keydown", onKey, true);
+    backdrop.remove();
+    previous?.focus?.();
+    onClose?.();
+  };
+  const onKey = (event) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      close();
+    }
+  };
+  const dialog = h(
+    "div",
+    { class: ["dialog", className], role: "dialog", "aria-modal": "true", "aria-label": title },
+    h("header", { class: "dialog-head" }, h("h2", { class: "dialog-title", text: title }), h("button", { type: "button", class: "icon-btn dialog-close", "aria-label": "Close", onClick: close }, icon("x", { size: 16 }))),
+    h("div", { class: "dialog-body" }, body),
+    actions.length > 0 && h("footer", { class: "dialog-actions" }, actions)
+  );
+  backdrop.append(dialog);
+  backdrop.addEventListener("pointerdown", (event) => {
+    if (event.target === backdrop) {
+      close();
+    }
+  });
+  document.addEventListener("keydown", onKey, true);
+  document.body.append(backdrop);
+  requestAnimationFrame(() => dialog.querySelector("input, textarea, select")?.focus());
+  return { close, element: dialog };
+}
+
+// A small menu anchored under an element. items: { label, iconName?, swatch?,
+// active?, onSelect } or "divider".
+export function openMenu(anchor, items, { className = null } = {}) {
+  const rect = anchor.getBoundingClientRect();
+  const layer = h("div", { class: "menu-layer" });
+  const close = () => {
+    document.removeEventListener("keydown", onKey, true);
+    layer.remove();
+  };
+  const onKey = (event) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      close();
+      anchor.focus();
+    }
+  };
+  const menu = h(
+    "div",
+    { class: ["menu", className], role: "menu", style: { left: `${Math.round(rect.left)}px`, top: `${Math.round(rect.bottom + 6)}px`, minWidth: `${Math.round(rect.width)}px` } },
+    items.map((item) =>
+      item === "divider"
+        ? h("div", { class: "menu-divider", role: "separator" })
+        : h(
+            "button",
+            {
+              type: "button",
+              role: "menuitem",
+              class: ["menu-item", item.active && "is-active"],
+              onClick: () => {
+                close();
+                item.onSelect();
+              }
+            },
+            item.swatch ? h("span", { class: "menu-swatch", style: { "--swatch": item.swatch } }, item.iconName && icon(item.iconName, { size: 14 })) : item.iconName && icon(item.iconName, { size: 16 }),
+            h("span", { class: "menu-label", text: item.label }),
+            item.active && icon("check", { size: 16, className: "menu-check" })
+          )
+    )
+  );
+  layer.append(menu);
+  layer.addEventListener("pointerdown", (event) => {
+    if (event.target === layer) {
+      close();
+    }
+  });
+  document.addEventListener("keydown", onKey, true);
+  document.body.append(layer);
+  requestAnimationFrame(() => menu.querySelector(".menu-item")?.focus());
+  return { close };
+}

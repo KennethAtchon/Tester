@@ -1,14 +1,16 @@
-// Left navigation rail: brand, destinations with live counts, and a card
-// with level, today's XP toward the daily goal, and the streak.
+// Left navigation rail: brand, the subject switcher, destinations with live
+// counts, and a card with level, today's XP toward the daily goal, and the
+// streak.
 
 import { h } from "../lib/dom.js";
 import { icon } from "./icons.js";
-import { route, href } from "./router.js";
-import { catalog } from "../state/catalog.js";
-import { todayStats, levelInfo } from "../state/learner.js";
+import { route, href, refresh } from "./router.js";
+import { catalog, currentSubject, setCurrentSubject, practiceScope } from "../state/catalog.js";
+import { todayStats, levelInfo, subjectNextLesson, dueCount } from "../state/learner.js";
 import { openMistakeCount } from "../state/sessions.js";
-import { meter, plural } from "./components.js";
+import { meter, plural, openMenu } from "./components.js";
 import { cycleTheme, themePreference } from "./theme.js";
+import { subjectDialog } from "./views/subjects.js";
 
 const THEME_META = {
   system: { icon: "monitor", label: "System theme" },
@@ -19,18 +21,22 @@ const THEME_META = {
 export function renderRail() {
   const rail = document.querySelector("#rail");
   const current = route().name;
+  const subject = currentSubject();
   const hasCourses = catalog().courses.length > 0;
   const stats = hasCourses ? todayStats() : null;
+  const due = hasCourses ? dueCount(practiceScope()) : 0;
   const mistakes = hasCourses ? openMistakeCount() : 0;
-  const mainCourse = catalog().courses[0];
+  const next = subject && subjectNextLesson(subject.id);
+  const pathCourse = next?.course ?? catalog().courses.find((course) => course.subjectId === subject?.id);
+  const hasProjects = catalog().projects.size > 0;
 
   const NAV = [
     { name: "home", label: "Home", icon: "today" },
-    mainCourse && { name: "course", params: [mainCourse.id], label: "Course", icon: "map", match: ["course"] },
-    { name: "practice", label: "Practice", icon: "zap", count: stats?.due || null },
-    { name: "lab", label: "Design Lab", icon: "layers" },
+    pathCourse && { name: "course", params: [pathCourse.id], label: "Course", icon: "map", match: ["course"] },
+    { name: "practice", label: "Practice", icon: "zap", count: due || null },
+    hasProjects && { name: "lab", label: "Design Lab", icon: "layers" },
     { name: "progress", label: "Progress", icon: "insights", count: mistakes || null },
-    { name: "library", label: "Library", icon: "book" }
+    { name: "subjects", label: "Subjects", icon: "grid", match: ["subjects", "subject", "write", "library"] }
   ].filter(Boolean);
 
   const nav = h(
@@ -56,6 +62,7 @@ export function renderRail() {
       h("span", { class: "brand-mark" }, icon("brand", { size: 20 })),
       h("span", { class: "brand-text" }, h("strong", { text: "Recall" }), h("span", { text: "Learn by doing" }))
     ),
+    subject && subjectSwitcher(subject),
     nav,
     h("div", { class: "rail-spacer" }),
     stats && statusCard(stats),
@@ -103,4 +110,46 @@ function statusCard(stats) {
     ),
     meter(stats.goal ? stats.xpToday / stats.goal : 0, { tone: stats.goalMet ? "good" : "accent", label: "Daily goal" })
   );
+}
+
+// The subject being studied, and a menu to switch to another one.
+function subjectSwitcher(subject) {
+  const trigger = h(
+    "button",
+    {
+      type: "button",
+      class: "subject-switch",
+      style: { "--subject": subject.color },
+      title: "Switch subject",
+      "aria-haspopup": "menu",
+      onClick: () =>
+        openMenu(
+          trigger,
+          [
+            ...catalog().subjects.map((entry) => ({
+              label: entry.title,
+              iconName: entry.icon,
+              swatch: entry.color,
+              active: entry.id === subject.id,
+              onSelect: () => {
+                setCurrentSubject(entry.id);
+                if (["course", "subject", "write"].includes(route().name)) {
+                  location.hash = href("home");
+                } else {
+                  refresh();
+                }
+              }
+            })),
+            "divider",
+            { label: "All subjects", iconName: "grid", onSelect: () => (location.hash = href("subjects")) },
+            { label: "New subject…", iconName: "plus", onSelect: () => subjectDialog(null, { onCreate: (id) => { setCurrentSubject(id); location.hash = href("subject", id); } }) }
+          ],
+          { className: "subject-menu" }
+        )
+    },
+    h("span", { class: "subject-switch-icon" }, icon(subject.icon, { size: 16 })),
+    h("span", { class: "subject-switch-text" }, h("span", { class: "subject-switch-label", text: "Studying" }), h("strong", { text: subject.title })),
+    icon("updown", { size: 16, className: "subject-switch-caret" })
+  );
+  return trigger;
 }

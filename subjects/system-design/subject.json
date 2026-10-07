@@ -1,0 +1,7 @@
+{
+  "id": "system-design",
+  "title": "System Design",
+  "description": "How large software systems are built: requirements, estimation, APIs, data, architecture, and the trade-offs that hold it together.",
+  "icon": "layers",
+  "color": "#2f6df6"
+}

@@ -5,13 +5,19 @@ const { runCode } = require("./runner/runCode");
 const { runExec } = require("./runner/runExec");
 
 const appRoot = path.dirname(__dirname);
-const coursesPath = path.join(appRoot, "courses");
+const subjectsPath = path.join(appRoot, "subjects");
 const resultsPath = path.join(appRoot, "results");
 
-// Learner progress (memory model, review log, settings) lives in the user-data
-// folder, not the repo, so personal study history never ends up in commits.
+// Two files in the user-data folder, never the repo: the learner's progress
+// (memory model, review log, settings), and their library (subjects and
+// courses they created or imported). Content and progress stay separate so a
+// progress reset never touches what was authored.
 function progressFilePath() {
   return path.join(app.getPath("userData"), "learning-progress.json");
+}
+
+function libraryFilePath() {
+  return path.join(app.getPath("userData"), "library.json");
 }
 
 function createWindow() {
@@ -48,40 +54,78 @@ app.on("window-all-closed", () => {
   }
 });
 
-// Built-in courses: every *.json file in courses/, and every folder with a
-// course.json whose "units"/"projects" list file names to inline.
-ipcMain.handle("courses:builtin", async () => {
-  let entries = [];
+// Built-in content lives in subjects/. Each subject is a folder with a
+// subject.json and its courses inside: a course is a folder with a
+// course.json (whose "units"/"projects" list file names to inline) or a
+// single .json file. Courses at the top level belong to no subject folder and
+// may name one with a "subject" field.
+ipcMain.handle("content:builtin", async () => {
+  const result = { subjects: [], courses: [], errors: [] };
+  for (const entry of await listDir(subjectsPath)) {
+    const entryPath = path.join(subjectsPath, entry.name);
+    try {
+      if (entry.isDirectory() && (await exists(path.join(entryPath, "subject.json")))) {
+        const subject = await readJson(path.join(entryPath, "subject.json"));
+        subject.id ||= entry.name;
+        result.subjects.push({ path: path.join(entryPath, "subject.json"), subject });
+        for (const child of await listDir(entryPath)) {
+          if (child.name !== "subject.json") {
+            await addCourse(result, path.join(entryPath, child.name), child, subject.id);
+          }
+        }
+      } else {
+        await addCourse(result, entryPath, entry, null);
+      }
+    } catch (error) {
+      result.errors.push({ path: entryPath, error: error.message });
+    }
+  }
+  return result;
+});
+
+async function addCourse(result, entryPath, entry, subjectId) {
   try {
-    entries = await fs.readdir(coursesPath, { withFileTypes: true });
+    if (entry.isDirectory()) {
+      const manifestPath = path.join(entryPath, "course.json");
+      if (!(await exists(manifestPath))) {
+        return;
+      }
+      const manifest = await readJson(manifestPath);
+      manifest.units = await inlineParts(entryPath, manifest.units);
+      manifest.projects = await inlineParts(entryPath, manifest.projects);
+      result.courses.push({ path: manifestPath, course: manifest, subjectId });
+    } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".json")) {
+      result.courses.push({ path: entryPath, course: await readJson(entryPath), subjectId });
+    }
+  } catch (error) {
+    result.errors.push({ path: entryPath, error: error.message });
+  }
+}
+
+async function listDir(dirPath) {
+  try {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    return entries.sort((a, b) => a.name.localeCompare(b.name));
   } catch (error) {
     if (error.code === "ENOENT") {
       return [];
     }
     throw error;
   }
+}
 
-  const courses = [];
-  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    const entryPath = path.join(coursesPath, entry.name);
-    try {
-      if (entry.isDirectory()) {
-        const manifestPath = path.join(entryPath, "course.json");
-        const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
-        manifest.units = await inlineParts(entryPath, manifest.units);
-        manifest.projects = await inlineParts(entryPath, manifest.projects);
-        courses.push({ path: manifestPath, course: manifest });
-      } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".json")) {
-        courses.push({ path: entryPath, course: JSON.parse(await fs.readFile(entryPath, "utf8")) });
-      }
-    } catch (error) {
-      if (error.code !== "ENOENT") {
-        courses.push({ path: entryPath, error: error.message });
-      }
-    }
+async function exists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
   }
-  return courses;
-});
+}
+
+async function readJson(filePath) {
+  return JSON.parse(await fs.readFile(filePath, "utf8"));
+}
 
 async function inlineParts(folder, parts) {
   if (!Array.isArray(parts)) {
@@ -97,7 +141,7 @@ async function inlineParts(folder, parts) {
     if (path.relative(folder, partPath).startsWith("..")) {
       throw new Error(`Course part must live inside the course folder: ${part}`);
     }
-    inlined.push(JSON.parse(await fs.readFile(partPath, "utf8")));
+    inlined.push(await readJson(partPath));
   }
   return inlined;
 }
@@ -120,47 +164,50 @@ ipcMain.handle("courses:open", async () => {
   return { canceled: false, filePath, content: await fs.readFile(filePath, "utf8") };
 });
 
-ipcMain.handle("courses:folder", async () => {
-  await fs.mkdir(coursesPath, { recursive: true });
-  return shell.openPath(coursesPath);
+ipcMain.handle("content:folder", async () => {
+  await fs.mkdir(subjectsPath, { recursive: true });
+  return shell.openPath(subjectsPath);
 });
 
 ipcMain.handle("code:run", async (_event, payload) => runCode(payload));
 
 ipcMain.handle("code:exec", async (_event, payload) => runExec(payload));
 
-ipcMain.handle("progress:load", async () => {
-  try {
-    return await fs.readFile(progressFilePath(), "utf8");
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return null;
+// progress:* and library:* each load and save one JSON file.
+for (const [name, filePath] of [["progress", progressFilePath], ["library", libraryFilePath]]) {
+  ipcMain.handle(`${name}:load`, async () => {
+    try {
+      return await fs.readFile(filePath(), "utf8");
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        return null;
+      }
+      throw error;
     }
-    throw error;
-  }
-});
+  });
+  ipcMain.handle(`${name}:save`, async (_event, content) => saveJsonFile(filePath(), content));
+  ipcMain.handle(`${name}:path`, async () => filePath());
+}
 
 // Write-then-rename so a crash mid-save can't leave a truncated file. Saves
-// are chained so two in flight never race on the temp file.
-let progressSaveChain = Promise.resolve();
+// to the same file are chained so two in flight never race on the temp file.
+const saveChains = new Map();
 
-ipcMain.handle("progress:save", async (_event, content) => {
+async function saveJsonFile(filePath, content) {
   if (typeof content !== "string") {
-    throw new Error("Progress must be a JSON string.");
+    throw new Error("Expected a JSON string.");
   }
-  const filePath = progressFilePath();
   const tempPath = `${filePath}.tmp`;
   const write = async () => {
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(tempPath, content, "utf8");
     await fs.rename(tempPath, filePath);
   };
-  progressSaveChain = progressSaveChain.then(write, write);
-  await progressSaveChain;
+  const chain = (saveChains.get(filePath) || Promise.resolve()).then(write, write);
+  saveChains.set(filePath, chain);
+  await chain;
   return { filePath };
-});
-
-ipcMain.handle("progress:path", async () => progressFilePath());
+}
 
 ipcMain.handle("tests:saveMarkdown", async (_event, { defaultName, tent, markdown }) => {
   const fileName = sanitizeMarkdownFileName(defaultName);
