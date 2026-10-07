@@ -1,11 +1,15 @@
-// Persistent learner data: profile, imported courses, lesson progress, per-item
-// memory, the review log, mistakes, rewards, quests, streak, and settings.
-// Saved to a JSON file in the app's user-data folder through the preload
-// bridge, with a synchronous localStorage mirror so nothing is lost if the
-// window closes mid-debounce. On load the newer of the two copies wins.
+// Persistent learner data: profile, lesson progress, per-item memory, the
+// review log, mistakes, rewards, quests, streak, and settings. Saved to the
+// user-data folder (see lib/persisted.js). Subjects and courses the learner
+// adds live separately in state/library.js.
 
-const STORAGE_KEY = "recall-progress-v2";
-const SAVE_DELAY_MS = 300;
+import { persistedDocument } from "../lib/persisted.js";
+
+const store = persistedDocument({
+  storageKey: "recall-progress-v2",
+  load: () => window.testFiles?.loadProgress?.(),
+  save: (text) => window.testFiles?.saveProgress?.(text)
+});
 const MAX_LOG = 5000;
 const MAX_REWARDS = 600;
 const VERSION = 2;
@@ -20,11 +24,11 @@ export const DEFAULT_SETTINGS = {
   confidenceInLessons: false, // rate confidence on every lesson step, not just in review
   includeLongForm: true, // written answers in review sessions
   sound: true,
-  theme: "system" // system | light | dark
+  theme: "system", // system | light | dark
+  practiceScope: "subject" // subject | all — which subjects the games draw from
 };
 
 let data = null;
-let saveTimer = null;
 const listeners = new Set();
 
 export function defaultProgress() {
@@ -34,8 +38,8 @@ export function defaultProgress() {
     savedAt: 0,
     settings: { ...DEFAULT_SETTINGS },
     // Who the learner is and how they chose to learn (set during onboarding).
-    profile: { onboarded: false, goal: null, games: [], startedAt: null },
-    imports: {}, // courseId → { raw, fileName, addedAt } for courses added by the learner
+    // subject is the one they're studying now; Home and the games follow it.
+    profile: { onboarded: false, goal: null, games: [], subject: null, startedAt: null },
     lessons: {}, // lessonKey → { completedAt, stars, best, attempts, lastPlayed }
     unlocked: {}, // lessonKey → true when skipped ahead to, "placed" when tested out of
     games: {}, // gameId → { best, plays, lastPlayed }
@@ -53,19 +57,7 @@ export function defaultProgress() {
 }
 
 export async function initProgress() {
-  const fromFile = await readFileCopy();
-  const fromLocal = readLocalCopy();
-  const candidates = [fromFile, fromLocal].filter(Boolean);
-  candidates.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
-  data = migrate(candidates[0] || defaultProgress());
-
-  window.addEventListener("beforeunload", () => {
-    if (saveTimer) {
-      clearTimeout(saveTimer);
-      writeLocalCopy();
-    }
-  });
-
+  data = migrate((await store.read()) || defaultProgress());
   return data;
 }
 
@@ -79,14 +71,8 @@ export function settings() {
 
 // Marks data dirty: mirrors to localStorage now, writes the file shortly.
 export function persist() {
-  data.savedAt = Date.now();
   trimLogs();
-  writeLocalCopy();
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    saveTimer = null;
-    writeFileCopy();
-  }, SAVE_DELAY_MS);
+  store.write(data);
   for (const listener of listeners) {
     listener(data);
   }
@@ -98,7 +84,7 @@ export function onProgressChange(listener) {
 }
 
 export function resetProgress() {
-  const keep = { settings: data.settings, imports: data.imports, profile: data.profile };
+  const keep = { settings: data.settings, profile: data.profile };
   data = defaultProgress();
   Object.assign(data, keep);
   persist();
@@ -126,7 +112,7 @@ function migrate(candidate) {
   merged.plan = { ...base.plan, ...(candidate.plan || {}) };
   merged.stats = { ...base.stats, ...(candidate.stats || {}) };
   merged.quests = { ...base.quests, ...(candidate.quests || {}) };
-  for (const key of ["imports", "lessons", "unlocked", "games", "items", "skills", "mistakes", "badges"]) {
+  for (const key of ["lessons", "unlocked", "games", "items", "skills", "mistakes", "badges"]) {
     if (!merged[key] || typeof merged[key] !== "object" || Array.isArray(merged[key])) {
       merged[key] = {};
     }
@@ -145,39 +131,5 @@ function trimLogs() {
   }
   if (data.rewards.length > MAX_REWARDS) {
     data.rewards.splice(0, data.rewards.length - MAX_REWARDS);
-  }
-}
-
-async function readFileCopy() {
-  try {
-    const text = await window.testFiles?.loadProgress?.();
-    return text ? JSON.parse(text) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeFileCopy() {
-  try {
-    window.testFiles?.saveProgress?.(JSON.stringify(data));
-  } catch {
-    // The localStorage mirror still holds the latest state.
-  }
-}
-
-function readLocalCopy() {
-  try {
-    const text = localStorage.getItem(STORAGE_KEY);
-    return text ? JSON.parse(text) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeLocalCopy() {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch {
-    // Quota or privacy mode: the file copy is the source of truth.
   }
 }

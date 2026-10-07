@@ -6,7 +6,7 @@
 // player can explain it.
 
 import { progress, settings, persist } from "./progress.js";
-import { catalog, getItem, getLesson, getUnit, getCourse } from "./catalog.js";
+import { catalog, getItem, getLesson, getUnit, getCourse, coursesIn, inScope } from "./catalog.js";
 import { newMemory, review, retrievability } from "../domain/fsrs.js";
 import { xpForAttempt, BADGES, levelFor, starsFor } from "../domain/rewards.js";
 import { calibration } from "../domain/insights.js";
@@ -14,7 +14,7 @@ import { questEvent } from "./quests.js";
 import { DAY_MS, dayKey, addDays, daysBetween, endOfStudyDay } from "../lib/time.js";
 
 export const MASTERY_THRESHOLD = 0.8;
-const REVIEW_TYPES = new Set(["choice", "sort", "order", "match", "estimate", "fill", "text"]);
+const REVIEW_TYPES = new Set(["choice", "sort", "order", "match", "estimate", "number", "fill", "text"]);
 
 export function memoryOf(itemKey) {
   return progress().items[itemKey] || newMemory();
@@ -118,13 +118,33 @@ export function courseStats(courseId) {
   return { done, total: course.lessonKeys.length, labs, labsTotal: course.projectKeys.length, progress: course.lessonKeys.length ? done / course.lessonKeys.length : 0 };
 }
 
+export function subjectStats(subjectId) {
+  const courses = coursesIn(subjectId);
+  const lessonKeys = courses.flatMap((course) => course.lessonKeys);
+  const done = lessonKeys.filter(isLessonComplete).length;
+  const projects = courses.reduce((sum, course) => sum + course.projectKeys.length, 0);
+  return { courses: courses.length, done, total: lessonKeys.length, projects, progress: lessonKeys.length ? done / lessonKeys.length : 0 };
+}
+
+// Where to continue in a subject: the course played most recently that still
+// has lessons left, otherwise the first one that does.
+export function subjectNextLesson(subjectId) {
+  const lastPlayed = (course) => Math.max(0, ...course.lessonKeys.map((key) => progress().lessons[key]?.lastPlayed || 0));
+  const open = coursesIn(subjectId)
+    .map((course, index) => ({ course, index, lessonKey: nextLessonKey(course.id), played: lastPlayed(course) }))
+    .filter((entry) => entry.lessonKey);
+  open.sort((a, b) => b.played - a.played || a.index - b.index);
+  return open[0] ? { course: open[0].course, lessonKey: open[0].lessonKey } : null;
+}
+
 // ── reviews ─────────────────────────────────────────────────────────────────
 
-export function dueItemKeys(now = Date.now()) {
+// scope: a subjectId, or null for every subject.
+export function dueItemKeys(now = Date.now(), scope = null) {
   const horizon = endOfStudyDay(now);
   const due = [];
   for (const item of catalog().items.values()) {
-    if (!isReviewable(item)) {
+    if (!isReviewable(item) || !inScope(item, scope)) {
       continue;
     }
     const memory = progress().items[item.key];
@@ -157,6 +177,10 @@ export function todayCounts(now = Date.now()) {
     }
   }
   return { reviewsToday };
+}
+
+export function dueCount(scope = null, now = Date.now()) {
+  return dueItemKeys(now, scope).length;
 }
 
 export function todayStats(now = Date.now()) {

@@ -1,12 +1,13 @@
 // Game cards and launchers shared by Home and Practice: what each game is,
 // its live status (due counts, personal bests, what's unlocked), and how to
-// start it.
+// start it. Games draw from the practice scope: the current subject, or every
+// subject when the learner picked "All subjects".
 
 import { h } from "../../lib/dom.js";
 import { icon } from "../icons.js";
 import { progress } from "../../state/progress.js";
-import { catalog, getUnit, getLesson } from "../../state/catalog.js";
-import { todayStats, seenItemKeys, nextLessonKey, courseStats } from "../../state/learner.js";
+import { catalog, getUnit, getLesson, practiceScope, currentSubjectId, getSubject, inScope } from "../../state/catalog.js";
+import { seenItemKeys, subjectNextLesson, subjectStats, dueCount, isReviewable } from "../../state/learner.js";
 import { reviewPlay, lightningPlay, arcadePlay, estimationPlay, bossPlay, bossAvailable, lessonPlay, openMistakeCount } from "../../state/sessions.js";
 import { gradeLetter } from "../../domain/rewards.js";
 import { startPlay } from "../player.js";
@@ -18,8 +19,11 @@ export function enabledGames() {
   return new Set(games?.length ? games : ["lessons", "review", "lab"]);
 }
 
-function nextBossUnit() {
+function nextBossUnit(scope) {
   for (const course of catalog().courses) {
+    if (!inScope(course, scope)) {
+      continue;
+    }
     for (const unitKey of course.unitKeys) {
       if (bossAvailable(unitKey) && !progress().games[`boss:${unitKey}`]?.won) {
         return unitKey;
@@ -32,38 +36,39 @@ function nextBossUnit() {
 export function gameStatus(gameId) {
   const record = progress().games[gameId];
   const best = record?.best;
+  const scope = practiceScope();
   switch (gameId) {
     case "lessons": {
-      const course = catalog().courses[0];
-      if (!course) {
+      const subjectId = currentSubjectId();
+      const stats = subjectId ? subjectStats(subjectId) : null;
+      if (!stats?.total) {
         return { line: "Add a course to begin", ready: false };
       }
-      const stats = courseStats(course.id);
-      const next = nextLessonKey(course.id);
-      return { line: next ? `Next: ${getLesson(next).title}` : "Course complete!", sub: `${stats.done}/${stats.total} lessons`, ready: Boolean(next) };
+      const next = subjectNextLesson(subjectId);
+      return { line: next ? `Next: ${getLesson(next.lessonKey).title}` : "Every lesson done!", sub: `${stats.done}/${stats.total} lessons in ${getSubject(subjectId).title}`, ready: Boolean(next) };
     }
     case "review": {
-      const due = todayStats().due;
-      const seen = seenItemKeys().length;
-      const mistakes = openMistakeCount();
+      const due = dueCount(scope);
+      const seen = seenItemKeys((item) => inScope(item, scope) && isReviewable(item)).length;
+      const mistakes = openMistakeCount(scope);
       return { line: due ? `${plural(due, "card")} due` : seen ? "All caught up" : "Starts after your first lesson", sub: mistakes ? `${plural(mistakes, "open mistake")}` : null, ready: seen > 0, badge: due || null };
     }
     case "lab": {
-      const projects = [...catalog().projects.values()];
+      const projects = [...catalog().projects.values()].filter((project) => inScope(project, scope));
       const done = projects.filter((project) => progress().lessons[project.key]?.best != null);
       const bestScore = Math.max(0, ...done.map((project) => progress().lessons[project.key].best));
-      return { line: projects.length ? `${done.length}/${projects.length} systems designed` : "No projects in your courses", sub: done.length ? `Best grade ${gradeLetter(bestScore)}` : null, ready: projects.length > 0 };
+      return { line: projects.length ? `${done.length}/${projects.length} projects done` : "No projects here yet", sub: done.length ? `Best grade ${gradeLetter(bestScore)}` : null, ready: projects.length > 0 };
     }
     case "lightning": {
-      const pool = lightningPlay().steps.length;
+      const pool = lightningPlay({ scope }).steps.length;
       return { line: pool >= 5 ? (best != null ? `Best: ${best} correct` : "60 seconds — how many can you get?") : "Unlocks after a couple of lessons", ready: pool >= 5 };
     }
     case "arcade":
-      return { line: best != null ? `Best: ${best} solved` : "Sort, match, and sequence", ready: arcadePlay().steps.length > 0 };
+      return { line: arcadePlay({ scope }).steps.length ? (best != null ? `Best: ${best} solved` : "Sort, match, and sequence") : "No puzzles here yet", ready: arcadePlay({ scope }).steps.length > 0 };
     case "estimation":
-      return { line: best != null ? `Best: ${best}/5 within 30%` : "Five numbers, scored by closeness", ready: estimationPlay().steps.length > 0 };
+      return { line: estimationPlay({ scope }).steps.length ? (best != null ? `Best: ${best}/5 within 30%` : "Five numbers, scored by closeness") : "No estimates here yet", ready: estimationPlay({ scope }).steps.length > 0 };
     case "boss": {
-      const unitKey = nextBossUnit();
+      const unitKey = nextBossUnit(scope);
       const beaten = Object.entries(progress().games).filter(([id, value]) => id.startsWith("boss:") && value.won).length;
       return { line: unitKey ? `Ready: ${getUnit(unitKey).title}` : "Finish a unit to face its boss", sub: beaten ? `${plural(beaten, "boss", "bosses")} beaten` : null, ready: Boolean(unitKey) };
     }
@@ -74,42 +79,41 @@ export function gameStatus(gameId) {
 
 export function launchGame(gameId) {
   const returnTo = location.hash.replace(/^#\/?/, "") || "home";
+  const scope = practiceScope();
   switch (gameId) {
     case "lessons": {
-      const course = catalog().courses[0];
-      const next = course && nextLessonKey(course.id);
+      const subjectId = currentSubjectId();
+      const next = subjectId && subjectNextLesson(subjectId);
       if (next) {
-        startPlay(lessonPlay(next), { returnTo });
-      } else if (course) {
-        navigate("course", course.id);
+        startPlay(lessonPlay(next.lessonKey), { returnTo });
       } else {
-        navigate("library");
+        navigate(subjectId ? "subject" : "subjects", ...(subjectId ? [subjectId] : []));
       }
       return;
     }
     case "review":
-      startPlay(todayStats().due > 0 ? reviewPlay({ kind: "due" }) : reviewPlay({ kind: "ahead" }), { returnTo });
+      startPlay(dueCount(scope) > 0 ? reviewPlay({ kind: "due", scope }) : reviewPlay({ kind: "ahead", scope }), { returnTo });
       return;
     case "lab":
       navigate("lab");
       return;
     case "lightning":
-      startPlay(lightningPlay(), { returnTo });
+      startPlay(lightningPlay({ scope }), { returnTo });
       return;
     case "arcade":
-      startPlay(arcadePlay(), { returnTo });
+      startPlay(arcadePlay({ scope }), { returnTo });
       return;
     case "estimation":
-      startPlay(estimationPlay(), { returnTo });
+      startPlay(estimationPlay({ scope }), { returnTo });
       return;
     case "boss": {
-      const unitKey = nextBossUnit();
+      const unitKey = nextBossUnit(scope);
       if (unitKey) {
         startPlay(bossPlay(unitKey), { returnTo });
       } else {
-        const course = catalog().courses[0];
-        if (course) {
-          navigate("course", course.id);
+        const subjectId = currentSubjectId();
+        if (subjectId) {
+          navigate("subject", subjectId);
         }
       }
       return;

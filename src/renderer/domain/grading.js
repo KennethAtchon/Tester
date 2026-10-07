@@ -201,6 +201,39 @@ export function gradeEstimate(step, value) {
   return { correct: false, score: 0, verdict: "wrong", ratio };
 }
 
+// Exact numbers for "number" steps: integers, decimals, negatives, fractions
+// (3/4, -1 1/2), scientific notation, and thousands separators. A unit typed
+// after the number is ignored.
+export function parseNumber(text) {
+  const raw = String(text ?? "").trim().replace(/,/g, "").replace(/\u2212/g, "-");
+  const mixed = raw.match(/^(-?)(\d+)\s+(\d+)\s*\/\s*(\d+)/);
+  if (mixed && Number(mixed[4]) !== 0) {
+    const value = Number(mixed[2]) + Number(mixed[3]) / Number(mixed[4]);
+    return mixed[1] ? -value : value;
+  }
+  const fraction = raw.match(/^(-?\d*\.?\d+)\s*\/\s*(\d*\.?\d+)/);
+  if (fraction) {
+    return Number(fraction[2]) === 0 ? null : Number(fraction[1]) / Number(fraction[2]);
+  }
+  const plain = raw.match(/^-?\d*\.?\d+(?:e[+-]?\d+)?/i);
+  return plain ? Number(plain[0]) : null;
+}
+
+// Right when within the step's absolute tolerance (default: exact) of any
+// accepted answer. No partial credit — use an estimate step for ballparks.
+export function gradeNumber(step, value) {
+  if (value == null || !Number.isFinite(value)) {
+    return { correct: false, score: 0, verdict: "wrong" };
+  }
+  const tolerance = Math.abs(Number(step.tolerance) || 0);
+  const correct = [].concat(step.answer).some((answer) => Math.abs(value - answer) <= Math.max(tolerance, 1e-9 * Math.max(1, Math.abs(answer))));
+  return { correct, score: correct ? 1 : 0, verdict: correct ? "correct" : "wrong" };
+}
+
+export function formatNumber(value) {
+  return Number.isInteger(value) ? value.toLocaleString() : String(Number(value.toPrecision(6)));
+}
+
 export function formatQuantity(value) {
   if (value == null || !Number.isFinite(value)) {
     return "—";

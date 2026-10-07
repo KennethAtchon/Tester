@@ -1,11 +1,15 @@
 #!/usr/bin/env node
-// Validates a course folder, a single-file course, or one unit/project file.
-// Beyond shape checks, it grades the author's own reference answers with the
-// app's graders: text model answers must pass their concepts, build solutions
-// must pass their rules, choice answers must be options, and so on.
+// Validates content: the whole subjects/ folder, one subject folder, a course
+// folder, a single-file course, one unit/project file, or a plain-text quick
+// course (.txt / .md). Beyond shape checks, it grades the author's own
+// reference answers with the app's graders: text model answers must pass
+// their concepts, build solutions must pass their rules, choice answers must
+// be options, and so on.
 //
-//   node scripts/validate-course.mjs courses/system-design
-//   node scripts/validate-course.mjs courses/system-design/units/03-estimation.json
+//   node scripts/validate-course.mjs subjects
+//   node scripts/validate-course.mjs subjects/system-design
+//   node scripts/validate-course.mjs subjects/system-design/end-to-end/units/03-estimation.json
+//   node scripts/validate-course.mjs my-notes.txt
 
 import fs from "node:fs";
 import path from "node:path";
@@ -16,10 +20,12 @@ const domain = (file) => import(pathToFileURL(path.join(root, "src/renderer/doma
 const { gradeText } = await domain("textGrader.js");
 const { gradeGraph, expandSpec, isKnownType } = await domain("architecture.js");
 const { parseFill, gradeApi, HTTP_METHODS } = await domain("grading.js");
+const { SUBJECT_ICONS } = await domain("subjects.js");
+const { parseCourseSource, normalizeCourse } = await domain("courseFormat.js");
 
 const target = process.argv[2];
 if (!target) {
-  console.error("Usage: node scripts/validate-course.mjs <course folder | course.json | unit.json | project.json>");
+  console.error("Usage: node scripts/validate-course.mjs <subjects folder | subject folder | course folder | course.json | unit.json | project.json | notes.txt>");
   process.exit(2);
 }
 
@@ -28,9 +34,11 @@ const warnings = [];
 const counts = {};
 let lessonCount = 0;
 let projectCount = 0;
+let subjectCount = 0;
+let courseCount = 0;
 
 const VISUALS = new Set(["flow", "diagram", "bars", "stats", "compare", "table"]);
-const GRADABLE = new Set(["choice", "sort", "order", "match", "estimate", "fill", "text", "api", "build", "code"]);
+const GRADABLE = new Set(["choice", "sort", "order", "match", "estimate", "number", "fill", "text", "api", "build", "code"]);
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 const err = (where, message) => errors.push(`${where}: ${message}`);
@@ -47,6 +55,7 @@ function readJson(file) {
 }
 
 function validateCourse(course, base, where) {
+  courseCount += 1;
   if (!str(course.id) || !ID.test(course.id)) err(where, "course needs a kebab-case id");
   if (!str(course.title)) err(where, "course needs a title");
   if (!Array.isArray(course.units) || course.units.length === 0) err(where, "course needs units");
@@ -195,6 +204,12 @@ const CHECKS = {
       if (!Array.isArray(pair) || pair.length !== 2 || !str(pair[0]) || !str(pair[1])) err(where, "each pair is [left, right]");
     }
   },
+  number(step, where) {
+    if (!str(step.prompt)) err(where, "needs a prompt");
+    const answers = [].concat(step.answer ?? []);
+    if (answers.length === 0 || !answers.every(Number.isFinite)) err(where, "answer must be a number (or a list of numbers)");
+    if (step.tolerance != null && !(step.tolerance >= 0)) err(where, "tolerance is an absolute amount like 0.01");
+  },
   estimate(step, where) {
     if (!str(step.prompt)) err(where, "needs a prompt");
     if (!(typeof step.answer === "number" && step.answer > 0)) err(where, "answer must be a positive number");
@@ -337,21 +352,82 @@ function validateVisual(visual, where) {
 
 // ── entry ───────────────────────────────────────────────────────────────────
 
-const resolved = path.resolve(target);
-if (fs.statSync(resolved).isDirectory()) {
-  const course = readJson(path.join(resolved, "course.json"));
-  if (course) validateCourse(course, resolved, path.relative(root, path.join(resolved, "course.json")));
-} else {
-  const data = readJson(resolved);
-  const where = path.relative(root, resolved);
-  if (data?.units) validateCourse(data, path.dirname(resolved), where);
+function validateSubjectFile(file) {
+  subjectCount += 1;
+  const subject = readJson(file);
+  const where = path.relative(root, file);
+  if (!subject) return null;
+  const folderId = path.basename(path.dirname(file));
+  if (subject.id != null && (!str(subject.id) || !ID.test(subject.id))) err(where, "subject id must be kebab-case");
+  if (subject.id && subject.id !== folderId) warn(where, `id "${subject.id}" differs from its folder name "${folderId}"`);
+  if (!str(subject.title)) err(where, "subject needs a title");
+  if (!str(subject.description)) warn(where, "subject has no description");
+  if (subject.icon && !SUBJECT_ICONS.includes(subject.icon)) warn(where, `unknown icon "${subject.icon}" (use one of: ${SUBJECT_ICONS.join(", ")})`);
+  if (subject.color && !/^#[0-9a-f]{6}$/i.test(subject.color)) err(where, "color must be a hex like #2f6df6");
+  return subject;
+}
+
+function validateEntry(entryPath) {
+  const stat = fs.statSync(entryPath);
+  if (stat.isDirectory()) {
+    if (fs.existsSync(path.join(entryPath, "subject.json"))) {
+      validateSubjectFile(path.join(entryPath, "subject.json"));
+      for (const child of fs.readdirSync(entryPath).sort()) {
+        if (child !== "subject.json" && !child.startsWith(".")) validateEntry(path.join(entryPath, child));
+      }
+    } else if (fs.existsSync(path.join(entryPath, "course.json"))) {
+      const course = readJson(path.join(entryPath, "course.json"));
+      if (course) validateCourse(course, entryPath, path.relative(root, path.join(entryPath, "course.json")));
+    } else {
+      // A folder of subjects (like subjects/ itself).
+      for (const child of fs.readdirSync(entryPath).sort()) {
+        const childPath = path.join(entryPath, child);
+        if (fs.statSync(childPath).isDirectory() || child.endsWith(".json")) validateEntry(childPath);
+      }
+    }
+    return;
+  }
+  const where = path.relative(root, entryPath);
+  if (/\.(txt|md|markdown)$/i.test(entryPath)) {
+    if (path.basename(entryPath).toLowerCase() === "readme.md") return;
+    validateQuick(entryPath, where);
+    return;
+  }
+  if (!entryPath.endsWith(".json")) return;
+  if (path.basename(entryPath) === "subject.json") {
+    validateSubjectFile(entryPath);
+    return;
+  }
+  const data = readJson(entryPath);
+  if (data?.units) validateCourse(data, path.dirname(entryPath), where);
   else if (data?.stages) validateProject(data, where);
   else if (data?.lessons) validateUnit(data, where);
   else err(where, "not a course, unit, or project (expected units, lessons, or stages)");
 }
 
+// Plain-text quick courses are checked the way the app reads them.
+function validateQuick(file, where) {
+  courseCount += 1;
+  try {
+    const raw = parseCourseSource(fs.readFileSync(file, "utf8"), path.basename(file));
+    const course = normalizeCourse(raw);
+    for (const note of raw.notes || []) warn(where, `line ${note.line}: ${note.message}`);
+    for (const warning of course.warnings) warn(where, warning);
+    for (const unit of course.units) {
+      for (const lesson of unit.lessons) {
+        lessonCount += 1;
+        for (const step of lesson.steps) counts[step.type] = (counts[step.type] || 0) + 1;
+      }
+    }
+  } catch (error) {
+    err(where, error.message);
+  }
+}
+
+validateEntry(path.resolve(target));
+
 const summary = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([type, count]) => `${type} ${count}`).join(" · ");
-console.log(`${lessonCount} lessons · ${projectCount} projects · ${summary}`);
+console.log(`${subjectCount ? `${subjectCount} subject(s) · ` : ""}${courseCount} course(s) · ${lessonCount} lessons · ${projectCount} projects · ${summary}`);
 for (const warning of warnings) console.log(`  warn  ${warning}`);
 for (const error of errors) console.log(`  ERROR ${error}`);
 console.log(errors.length ? `\n✗ ${errors.length} error(s), ${warnings.length} warning(s)` : `\n✓ valid (${warnings.length} warning(s))`);

@@ -7,7 +7,7 @@ import { h } from "../../lib/dom.js";
 import { icon } from "../icons.js";
 import { button, chip, pageHead, emptyState } from "../components.js";
 import { progress } from "../../state/progress.js";
-import { catalog } from "../../state/catalog.js";
+import { catalog, getSubject } from "../../state/catalog.js";
 import { projectPlay } from "../../state/sessions.js";
 import { gradeLetter } from "../../domain/rewards.js";
 import { startPlay } from "../player.js";
@@ -18,15 +18,31 @@ export function renderLab(root) {
   root.append(page);
   const projects = [...catalog().projects.values()];
 
-  page.append(pageHead({ eyebrow: "Design Lab", title: "Build real systems", sub: "Each project walks a full design: requirements → estimation → API → data model → architecture → deep dives. Every stage is graded, and the scorecard shows exactly what to tighten." }));
+  page.append(pageHead({ eyebrow: "Design Lab", title: "Build complete projects", sub: "Each project takes one problem end to end in graded stages. In System Design that's requirements → estimation → API → data model → architecture → deep dives, with a scorecard that shows exactly what to tighten." }));
 
   if (projects.length === 0) {
-    page.append(emptyState({ iconName: "layers", title: "No projects yet", body: "Projects come with courses. The System Design course includes four.", actions: [button("Library", { onClick: () => navigate("library") })] }));
+    page.append(emptyState({ iconName: "layers", title: "No projects yet", body: "Projects come with courses. The System Design course includes four.", actions: [button("Subjects", { onClick: () => navigate("subjects") })] }));
     return;
   }
 
+  // Grouped by subject once more than one subject has projects.
+  const bySubject = new Map();
+  for (const project of projects) {
+    bySubject.set(project.subjectId, [...(bySubject.get(project.subjectId) || []), project]);
+  }
+  for (const [subjectId, list] of bySubject) {
+    const subject = getSubject(subjectId);
+    page.append(
+      h(
+        "section",
+        { class: "lab-group" },
+        bySubject.size > 1 && h("h2", { class: "lab-group-title" }, h("span", { class: "subject-badge", style: { "--subject": subject.color } }, icon(subject.icon, { size: 16 })), subject.title),
+        h("div", { class: "project-grid" }, list.map((project) => projectCard(project, { returnTo: "lab" })))
+      )
+    );
+  }
+
   page.append(
-    h("div", { class: "project-grid" }, projects.map((project) => projectCard(project, { returnTo: "lab" }))),
     h(
       "section",
       { class: "card how-graded" },

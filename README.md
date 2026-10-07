@@ -1,6 +1,6 @@
 # Recall
 
-A desktop app for learning by doing, in the style of Brilliant. Courses are made of short interactive lessons: a quick idea, then something to do with it, with feedback after every answer. It ships with a full **System Design** course, from functional requirements through to a high-level design you build on a canvas and get auto-graded.
+A desktop app for learning by doing, in the style of Brilliant. Everything is organized into **subjects** (System Design, Math, Biology, whatever you add), and each subject holds courses made of short interactive lessons: a quick idea, then something to do with it, with feedback after every answer. It ships with a full **System Design** subject, from functional requirements through to a high-level design you build on a canvas and get auto-graded. You can create your own subjects and write courses for them right in the app.
 
 Under the games and streaks there's one learning engine: retrieval practice, spaced repetition (FSRS-5), interleaving, and feedback that explains why.
 
@@ -11,9 +11,19 @@ npm install
 npm start
 ```
 
-On first launch, four quick choices set things up: your goal, a daily pace, which **games** you want, and whether to start from the beginning or take a two-minute placement check. All of it can be changed later in **Practice** and **Settings**.
+On first launch, five quick choices set things up: the subject (pick System Design or create your own), your goal, a daily pace, which **games** you want, and whether to start from the beginning or take a two-minute placement check. All of it can be changed later in **Subjects**, **Practice** and **Settings**.
 
-## The System Design course
+## Subjects
+
+A subject holds its own courses, path, and progress. The subject you're **studying** is shown at the top of the sidebar; click it to switch. Home's next lesson and the games follow it, and in **Practice** you can have the games draw from **all subjects** instead.
+
+- **Subjects** shows every subject with its progress, plus **New subject**. Start from a preset (Math, Science, Biology, Programming, Languages, History, Music, Business, Art & design, Health) or from scratch, with your own name, icon and color.
+- **A subject's page** lists its courses and Design Lab projects, and has the ways to add a course: **Write a course**, **Import a file**, or drop a file while the page is open.
+- **Your own subjects and courses** can be edited, moved to another subject, or deleted. Editing a course keeps your progress on the steps you didn't change.
+
+There are no accounts yet, so you're both the learner and the author. Your subjects and courses are saved separately from your progress (see [Your data](#your-data)), so resetting progress never touches what you wrote, and the two can become separate roles later.
+
+## The System Design subject
 
 Eight units, 33 lessons, and about 390 interactive steps, followed by four Design Lab projects:
 
@@ -47,6 +57,7 @@ Each project has two modes. **Guided** gives feedback and hints as you go. **Int
 | Sequence | Put steps in order | Partial credit for how much is already in the right relative order |
 | Match | Pair left with right | Per pair |
 | Estimate | Back-of-the-envelope number (`1.2k`, `3M` and `1e6` all work) | Within 30% is right and within 2× gets partial credit. Shows a log-scale number line and the worked solution |
+| Solve | An exact number for math and science (`6`, `-3/4`, `-1 1/2`, `2.5 m/s`) | Exact, or within an absolute tolerance the author sets. Shows the answer and a worked solution |
 | Fill in | Complete a sentence by tapping a word bank or typing | Per blank. Typed blanks forgive small typos |
 | Explain | Write an answer in your own words | Checked for key **concepts**, not exact words (see below). You can override a miss |
 | Design the API | Pick a method and write a path for each purpose | Ignores `/api` and `/v1` prefixes, plurals, and `{id}`, `:id` or `<id>` styles |
@@ -92,53 +103,72 @@ Around them sit XP and levels, a daily XP goal with a streak (and streak freezes
 
 ## Adding courses
 
-Adding a course is one step:
+Every course belongs to a subject. Adding one is a single step:
 
-- **Drop a file anywhere on the window**: course JSON, an older test file, or plain-text notes (`.txt` or `.md`).
-- **Library → Choose file…** opens the same thing through a file picker.
-- **Library → Paste notes**: paste plain-text Q/A and see a live preview before you create the course.
-- **The courses folder** (`courses/`, or **Settings → Open folder**): anything in it loads automatically on every launch. That's where the System Design course lives.
+- **Write a course** (on a subject's page, or Home when a subject is empty) opens the course editor. Type lessons in plain text, use the **Insert** buttons for a ready-made step of each type, and watch the live preview: lessons, steps, and anything the editor didn't understand, with line numbers. **Ctrl S** saves.
+- **Import a file** on a subject's page: course JSON, an older test file, or plain-text notes (`.txt` or `.md`).
+- **Drop a file anywhere on the window.** On a subject's page it joins that subject; anywhere else, the one you're studying.
+- **The subjects folder** (`subjects/`, or **Settings → Open folder**): a folder with a `subject.json` and courses inside loads automatically on every launch. That's where System Design lives.
 
-The quickest format is plain text:
+The plain-text format covers concept cards, multiple choice, typed answers, exact numbers, estimates, sorting, ordering, matching and fill-in-the-blank:
 
 ```
-# Networking basics
-## Ports and protocols
-Q: Which port does HTTPS use by default?
-- 80
-* 443
-- 22
-Why: 443 is HTTPS; 80 is plain HTTP; 22 is SSH.
+# Algebra foundations
+## Keeping it balanced
+Learn: An equation is a balance
+Whatever you do to one side, do to the other.
 
-Q: What does DNS do?
-A: Resolves a domain name to an IP address.
+Q: Solve 3x = 12. What is x?
+- 3
+* 4
+- 36
+Why: Divide both sides by 3.
 
-> Lines starting with > become short concept cards.
+Number: Solve 2x + 5 = 17
+A: 6
+Step: Subtract 5 from both sides: 2x = 12
+Step: Divide both sides by 2: x = 6
+
+Sort: Proper or improper?
+[Proper] 3/4
+[Improper] 5/4
+
+Match: Match each term to its meaning.
+- Numerator -> The top number
+- Denominator -> The bottom number
 ```
 
 Older `{ "title", "tests": [{ "questions": [...] }] }` question banks still import: each test becomes a lesson and each question a step. Answer keys, explanations, the first hint, rubrics, misconception notes and runnable code tests carry over.
 
 ## Writing courses
 
-The full schema, covering every step type, visual, grading rule and component type, is in [`courses/README.md`](courses/README.md). Check a course before opening the app:
+The full reference, covering the folder layout, every step type, the plain-text format, visuals, grading rules and component types, is in [`subjects/README.md`](subjects/README.md). Check content before opening the app:
 
 ```sh
-node scripts/validate-course.mjs courses/system-design
+node scripts/validate-course.mjs subjects            # everything built in
+node scripts/validate-course.mjs subjects/system-design
+node scripts/validate-course.mjs my-notes.txt        # a plain-text course
 ```
 
 The validator checks structure and also **grades the reference answers**: every written model answer must pass its own concepts, and every reference design must pass its own rules and use only components from its palette.
 
 ## Your data
 
-Progress (memory state, review log, mistakes, XP, streak, badges, settings) is saved to `learning-progress.json` in Electron's user-data folder. The exact path is shown in **Settings**. It's kept out of the repo on purpose. Courses you add are stored with your progress, so they're there on the next launch.
+Two files in Electron's user-data folder, kept out of the repo on purpose (the exact paths are shown in **Settings**):
+
+- `learning-progress.json` holds your progress: memory state, review log, mistakes, XP, streak, badges and settings.
+- `library.json` holds what you authored: the subjects you created and the courses you wrote or imported.
+
+Courses imported before subjects existed move into a **My courses** subject the first time you open this version.
 
 ## Architecture
 
 There's no build step: the renderer is vanilla ES modules under `src/renderer/`, with CodeMirror 5 vendored.
 
-- `app.js` is the entry point. It loads progress and the built-in courses, applies the theme, rolls the streak forward, sends first-time learners to setup, and handles dropped files.
+- `app.js` is the entry point. It loads progress, your library and the built-in subjects, applies the theme, rolls the streak forward, sends first-time learners to setup, and handles dropped files.
 - `domain/` holds pure logic with no DOM:
   - `courseFormat.js` parses course JSON, folders, quick text and older test files.
+  - `subjects.js` has the subject presets, icons and colors.
   - `grading.js`, `textGrader.js` and `architecture.js` are the graders.
   - `fsrs.js` is the scheduler.
   - `games.js` defines the games, goals and daily goals.
@@ -147,16 +177,17 @@ There's no build step: the renderer is vanilla ES modules under `src/renderer/`,
   - `normalize.js` reads older test files.
 - `state/`:
   - `progress.js` holds persistent learner data.
-  - `catalog.js` maps courses → units → lessons → items.
+  - `library.js` holds the subjects and courses you authored.
+  - `catalog.js` maps subjects → courses → units → lessons → items, tracks the subject you're studying, and does the authoring (create, edit, move and delete).
   - `learner.js` handles memory, mastery, mistakes, streak and rewards. Every answer goes through `recordAttempt`.
   - `sessions.js` builds every kind of play.
   - `quests.js` runs the daily quests.
 - `ui/`:
   - `player.js` runs any play (lesson, review, project or game) one step at a time.
   - `exercises/` holds one factory per step type, plus the diagram and build canvas.
-  - `views/` holds one module per screen.
+  - `views/` holds one module per screen, including `subjects.js` (the subjects grid, subject pages and the subject dialog) and `editor.js` (the course editor).
   - The shared pieces are `components.js`, `charts.js`, `rail.js`, `router.js`, `theme.js` and `toast.js`.
-- `lib/` has DOM helpers, light Markdown (`markup.js`), sound effects and confetti.
+- `lib/` has DOM helpers, light Markdown (`markup.js`), the file-plus-localStorage persistence used by progress and the library (`persisted.js`), sound effects and confetti.
 - `styles/app.css` is the design system: light and dark tokens, then layout per screen.
 
-The main process exposes a small file API over IPC (`src/preload.js` → `window.testFiles`). It lists built-in courses, opens a course file, opens the courses folder, saves Markdown, loads and saves progress, and runs code (`src/runner/`).
+The main process exposes a small file API over IPC (`src/preload.js` → `window.testFiles`). It lists the built-in subjects and courses, opens a course file, opens the subjects folder, saves Markdown, loads and saves progress and the library, and runs code (`src/runner/`).

@@ -897,9 +897,9 @@ function replay() {
   const { play } = active;
   import("../state/sessions.js").then((sessions) => {
     const builders = {
-      lightning: () => sessions.lightningPlay(),
-      arcade: () => sessions.arcadePlay(),
-      estimation: () => sessions.estimationPlay(),
+      lightning: () => sessions.lightningPlay({ scope: play.scope }),
+      arcade: () => sessions.arcadePlay({ scope: play.scope }),
+      estimation: () => sessions.estimationPlay({ scope: play.scope }),
       boss: () => sessions.bossPlay(play.key),
       project: () => sessions.projectPlay(play.key, { interview: play.options.interview })
     };

@@ -1,10 +1,12 @@
-// Entry point: loads saved progress and the built-in courses, applies the
-// theme and sound settings, rolls the streak forward, sends first-time
-// learners to setup, and lets a course file be dropped anywhere on the
-// window. Everything else lives in the focused modules below.
+// Entry point: loads saved progress, the learner's own subjects and courses,
+// and the built-in subjects; applies the theme and sound settings; rolls the
+// streak forward; sends first-time learners to setup; and lets a course file
+// be dropped anywhere on the window. Everything else lives in the focused
+// modules below.
 
-import { initProgress, onProgressChange, progress, settings } from "./state/progress.js";
-import { loadBuiltinCourses } from "./state/catalog.js";
+import { initProgress, onProgressChange, progress, settings, persist } from "./state/progress.js";
+import { initLibrary, adoptLegacyImports } from "./state/library.js";
+import { loadBuiltinContent, currentSubjectId } from "./state/catalog.js";
 import { rollStreak } from "./state/learner.js";
 import { initTheme } from "./ui/theme.js";
 import { renderRail } from "./ui/rail.js";
@@ -18,14 +20,19 @@ import { renderCourse } from "./ui/views/course.js";
 import { renderLab } from "./ui/views/lab.js";
 import { renderPractice } from "./ui/views/practice.js";
 import { renderProgress } from "./ui/views/progress.js";
-import { renderLibrary } from "./ui/views/library.js";
+import { renderSubjects, renderSubject } from "./ui/views/subjects.js";
+import { renderEditor } from "./ui/views/editor.js";
 import { renderSettings } from "./ui/views/settings.js";
 import { renderWelcome } from "./ui/views/welcome.js";
 
-await initProgress();
+await Promise.all([initProgress(), initLibrary()]);
+if (adoptLegacyImports(progress().imports)) {
+  delete progress().imports;
+  persist();
+}
 initTheme();
 setSoundEnabled(settings().sound);
-await loadBuiltinCourses();
+await loadBuiltinContent();
 
 const streak = rollStreak();
 if (streak.usedFreezes > 0) {
@@ -39,7 +46,10 @@ registerViews(
     lab: renderLab,
     practice: renderPractice,
     progress: renderProgress,
-    library: renderLibrary,
+    subjects: renderSubjects,
+    subject: renderSubject,
+    write: renderEditor,
+    library: renderSubjects,
     settings: renderSettings,
     play: renderPlayer,
     welcome: renderWelcome
@@ -78,14 +88,21 @@ window.addEventListener("drop", async (event) => {
   if (!hasFiles(event)) {
     return;
   }
-  event.preventDefault();
   dragDepth = 0;
   overlay.hidden = true;
+  // The course editor takes a dropped file into its text box instead.
+  if (event.defaultPrevented) {
+    return;
+  }
+  event.preventDefault();
   if (hasActivePlay()) {
     toast("Finish or close this session first, then drop the file again.");
     return;
   }
-  const course = await importFiles([...event.dataTransfer.files]);
+  // On a subject's page the file joins that subject; elsewhere, the current one.
+  const { name, params } = route();
+  const subjectId = name === "subject" ? params[0] : currentSubjectId();
+  const course = await importFiles([...event.dataTransfer.files], { subjectId });
   if (course) {
     navigate("course", course.id);
   }

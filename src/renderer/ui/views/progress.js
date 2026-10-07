@@ -1,12 +1,12 @@
-// Progress: Overview (level, streak, what you've finished, badges), the
+// Progress: Overview (level, streak, each subject and course, badges), the
 // mistake notebook, and Insights (calibration, forgetting curve, and more).
 
 import { h } from "../../lib/dom.js";
 import { icon } from "../icons.js";
 import { pageHead, statTile, meter, card, pct, plural } from "../components.js";
 import { progress } from "../../state/progress.js";
-import { catalog } from "../../state/catalog.js";
-import { levelInfo, earnedBadges, courseStats, weekXp, todayStats } from "../../state/learner.js";
+import { catalog, coursesIn } from "../../state/catalog.js";
+import { levelInfo, earnedBadges, courseStats, subjectStats, weekXp, todayStats } from "../../state/learner.js";
 import { openMistakeCount } from "../../state/sessions.js";
 import { formatAgo } from "../../lib/time.js";
 import { navigate } from "../router.js";
@@ -84,19 +84,38 @@ function overview() {
       statTile({ label: "Best combo", value: `×${data.stats.bestCombo || 0}`, sub: data.games.lightning ? `Lightning best ${data.games.lightning.best}` : null })
     ),
     card(
-      { title: "Courses" },
+      { title: "Subjects" },
       h(
-        "ul",
-        { class: "course-rows" },
-        catalog().courses.map((course) => {
-          const stats = courseStats(course.id);
+        "div",
+        { class: "subject-progress" },
+        catalog().subjects.filter((subject) => subject.courseIds.length > 0).map((subject) => {
+          const stats = subjectStats(subject.id);
           return h(
-            "li",
-            { class: "course-row", style: { "--course": course.color } },
-            h("span", { class: "course-dot" }),
-            h("a", { class: "course-row-title", href: `#/course/${encodeURIComponent(course.id)}`, text: course.title }),
-            meter(stats.progress, { label: `${course.title} progress` }),
-            h("span", { class: "num muted", text: `${stats.done}/${stats.total} · ${pct(stats.progress)}` })
+            "section",
+            { class: "subject-progress-group" },
+            h(
+              "div",
+              { class: "course-row is-subject", style: { "--course": subject.color } },
+              h("span", { class: "subject-badge", style: { "--subject": subject.color } }, icon(subject.icon, { size: 15 })),
+              h("a", { class: "course-row-title", href: `#/subject/${encodeURIComponent(subject.id)}`, text: subject.title }),
+              meter(stats.progress, { label: `${subject.title} progress` }),
+              h("span", { class: "num muted", text: `${stats.done}/${stats.total} · ${pct(stats.progress)}` })
+            ),
+            h(
+              "ul",
+              { class: "course-rows" },
+              coursesIn(subject.id).map((course) => {
+                const courseProgress = courseStats(course.id);
+                return h(
+                  "li",
+                  { class: "course-row", style: { "--course": course.color } },
+                  h("span", { class: "course-dot" }),
+                  h("a", { class: "course-row-title", href: `#/course/${encodeURIComponent(course.id)}`, text: course.title }),
+                  meter(courseProgress.progress, { label: `${course.title} progress` }),
+                  h("span", { class: "num muted", text: `${courseProgress.done}/${courseProgress.total} · ${pct(courseProgress.progress)}` })
+                );
+              })
+            )
           );
         })
       )

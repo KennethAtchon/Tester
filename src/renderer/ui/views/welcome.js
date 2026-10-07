@@ -1,25 +1,27 @@
-// First-run setup, four quick choices: your goal, your daily pace, which ways
-// of learning you want, and where to start. Everything can be changed later
-// in Settings or Practice. Framed as preferences, not "learning styles" —
-// every game uses the same evidence-based engine underneath.
+// First-run setup, five quick choices: the subject, your goal, your daily
+// pace, which ways of learning you want, and where to start. Everything can
+// be changed later in Subjects, Settings, or Practice. Framed as preferences,
+// not "learning styles": every game uses the same evidence-based engine.
 
 import { h } from "../../lib/dom.js";
 import { icon } from "../icons.js";
 import { button } from "../components.js";
 import { progress, settings, persist } from "../../state/progress.js";
-import { catalog } from "../../state/catalog.js";
+import { catalog, getSubject, coursesIn, currentSubjectId, setCurrentSubject } from "../../state/catalog.js";
 import { GAMES, GOALS, DAILY_GOALS } from "../../domain/games.js";
 import { lessonPlay, placementPlay } from "../../state/sessions.js";
-import { nextLessonKey } from "../../state/learner.js";
+import { subjectNextLesson } from "../../state/learner.js";
 import { startPlay } from "../player.js";
 import { navigate } from "../router.js";
 import { play as sound } from "../../lib/sound.js";
+import { subjectBadge, subjectDialog } from "./subjects.js";
 
-const state = { step: 0, goal: null, xp: 60, games: null, start: "beginning" };
+const state = { step: 0, subject: null, goal: null, xp: 60, games: null, start: "beginning" };
 
 export function renderWelcome(root) {
   const profile = progress().profile;
   if (state.games == null) {
+    state.subject = profile.subject || currentSubjectId();
     state.goal = profile.goal;
     state.xp = settings().dailyXp;
     state.games = new Set(profile.games?.length ? profile.games : GOALS[0].games);
@@ -27,7 +29,7 @@ export function renderWelcome(root) {
   const page = h("div", { class: "welcome" });
   root.append(page);
 
-  const steps = [goalStep, paceStep, gamesStep, startStep];
+  const steps = [subjectStep, goalStep, paceStep, gamesStep, startStep];
   let shown = null;
   const paint = () => {
     // Animate only when the step changes, not on every selection.
@@ -63,14 +65,53 @@ function nav(paint, { canNext = true, nextLabel = "Continue", onNext = null } = 
   );
 }
 
-function goalStep(paint) {
-  const course = catalog().courses[0];
+function subjectStep(paint) {
   return h(
     "div",
     null,
     h("p", { class: "eyebrow", text: "Welcome to Recall" }),
-    h("h1", { class: "welcome-title", text: course ? `Let's set up ${course.title}.` : "Let's get you set up." }),
-    h("p", { class: "welcome-lede", text: "You'll learn by doing: short interactive steps, real designs you build yourself, and reviews timed so it sticks. First — what are you here for?" }),
+    h("h1", { class: "welcome-title", text: "What do you want to learn?" }),
+    h("p", { class: "welcome-lede", text: "You'll learn by doing: short interactive steps, projects you build yourself, and reviews timed so it sticks. Pick a subject to start with. You can add more any time." }),
+    h(
+      "div",
+      { class: "choice-cards subject-choices" },
+      catalog().subjects.map((subject) =>
+        h(
+          "button",
+          { type: "button", class: ["choice-card", "subject-choice", state.subject === subject.id && "is-selected"], "aria-pressed": String(state.subject === subject.id), onClick: () => { state.subject = subject.id; paint(); } },
+          subjectBadge(subject, { size: 22 }),
+          h("span", { class: "subject-choice-text" }, h("strong", { text: subject.title }), h("span", { text: subject.description || `${coursesIn(subject.id).length} courses` }))
+        )
+      ),
+      h(
+        "button",
+        {
+          type: "button",
+          class: "choice-card subject-choice is-new",
+          onClick: () =>
+            subjectDialog(null, {
+              onCreate: (id) => {
+                state.subject = id;
+                paint();
+              }
+            })
+        },
+        h("span", { class: "subject-badge is-plain" }, icon("plus", { size: 22 })),
+        h("span", { class: "subject-choice-text" }, h("strong", { text: "Something else" }), h("span", { text: "Create your own subject — math, science, a language — and add courses to it." }))
+      )
+    ),
+    nav(paint, { canNext: Boolean(state.subject && getSubject(state.subject)) })
+  );
+}
+
+function goalStep(paint) {
+  const subject = getSubject(state.subject);
+  return h(
+    "div",
+    null,
+    h("p", { class: "eyebrow", text: subject?.title || "Your goal" }),
+    h("h1", { class: "welcome-title", text: "What are you here for?" }),
+    h("p", { class: "welcome-lede", text: "This picks a starting mix of games for you. Change it any time." }),
     h(
       "div",
       { class: "choice-cards" },
@@ -158,11 +199,38 @@ function gamesStep(paint) {
 }
 
 function startStep(paint) {
-  const course = catalog().courses[0];
+  const subject = getSubject(state.subject);
+  const course = coursesIn(subject.id).find((entry) => entry.lessonKeys.length > 0);
+  const finish = () => {
+    const profile = progress().profile;
+    profile.onboarded = true;
+    profile.goal = state.goal;
+    profile.games = [...state.games];
+    profile.startedAt ??= Date.now();
+    settings().dailyXp = state.xp;
+    setCurrentSubject(subject.id);
+    persist();
+  };
+
+  if (!course) {
+    return h(
+      "div",
+      null,
+      h("p", { class: "eyebrow", text: subject.title }),
+      h("h1", { class: "welcome-title", text: "Let's add your first course." }),
+      h("p", { class: "welcome-lede", text: `${subject.title} is ready but empty. Next you'll write a course in plain text (it takes a minute and shows a live preview), or import one you already have.` }),
+      nav(paint, { nextLabel: `Open ${subject.title}`, onNext: () => { finish(); navigate("subject", subject.id); } })
+    );
+  }
+
+  const canPlace = placementPlay(course.id).steps.length >= 4;
   const options = [
-    { id: "beginning", title: "Start from the beginning", detail: "New to system design, or want the full path." },
-    { id: "placement", title: "I know some of this — place me", detail: "A two-minute check unlocks the units you already know." }
-  ];
+    { id: "beginning", title: "Start from the beginning", detail: `New to ${subject.title.toLowerCase()}, or want the full path.` },
+    canPlace && { id: "placement", title: "I know some of this — place me", detail: "A two-minute check unlocks the units you already know." }
+  ].filter(Boolean);
+  if (!canPlace) {
+    state.start = "beginning";
+  }
   return h(
     "div",
     null,
@@ -183,19 +251,11 @@ function startStep(paint) {
     nav(paint, {
       nextLabel: state.start === "placement" ? "Start placement" : "Start learning",
       onNext: () => {
-        const profile = progress().profile;
-        profile.onboarded = true;
-        profile.goal = state.goal;
-        profile.games = [...state.games];
-        profile.startedAt ??= Date.now();
-        settings().dailyXp = state.xp;
-        persist();
-        if (!course) {
-          navigate("library");
-        } else if (state.start === "placement") {
+        finish();
+        if (state.start === "placement") {
           startPlay(placementPlay(course.id), { returnTo: `course/${course.id}` });
         } else {
-          startPlay(lessonPlay(nextLessonKey(course.id)), { returnTo: "home" });
+          startPlay(lessonPlay(subjectNextLesson(subject.id)?.lessonKey ?? course.lessonKeys[0]), { returnTo: "home" });
         }
       }
     })
