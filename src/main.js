@@ -3,21 +3,26 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const { runCode } = require("./runner/runCode");
 const { runExec } = require("./runner/runExec");
+const partner = require("./partner");
 
 const appRoot = path.dirname(__dirname);
 const subjectsPath = path.join(appRoot, "subjects");
-const resultsPath = path.join(appRoot, "results");
 
-// Two files in the user-data folder, never the repo: the learner's progress
-// (memory model, review log, settings), and their library (subjects and
-// courses they created or imported). Content and progress stay separate so a
-// progress reset never touches what was authored.
+// Everything the learner writes lives in the user-data folder, never the repo,
+// which is public: their progress (memory model, review log, settings), their
+// library (subjects and courses they created or imported), and Markdown
+// exports, which quote a course's reference answers. Content and progress stay
+// separate so a progress reset never touches what was authored.
 function progressFilePath() {
   return path.join(app.getPath("userData"), "learning-progress.json");
 }
 
 function libraryFilePath() {
   return path.join(app.getPath("userData"), "library.json");
+}
+
+function resultsDirPath() {
+  return path.join(app.getPath("userData"), "results");
 }
 
 function createWindow() {
@@ -173,6 +178,12 @@ ipcMain.handle("code:run", async (_event, payload) => runCode(payload));
 
 ipcMain.handle("code:exec", async (_event, payload) => runExec(payload));
 
+ipcMain.handle("partner:status", async () => partner.status());
+ipcMain.handle("partner:setKey", async (_event, key) => partner.setKey(key));
+ipcMain.handle("partner:clearKey", async () => partner.clearKey());
+ipcMain.handle("partner:reply", async (_event, payload) => partner.reply(payload));
+ipcMain.handle("partner:coach", async (_event, payload) => partner.coach(payload));
+
 // progress:* and library:* each load and save one JSON file.
 for (const [name, filePath] of [["progress", progressFilePath], ["library", libraryFilePath]]) {
   ipcMain.handle(`${name}:load`, async () => {
@@ -212,7 +223,7 @@ async function saveJsonFile(filePath, content) {
 ipcMain.handle("tests:saveMarkdown", async (_event, { defaultName, tent, markdown }) => {
   const fileName = sanitizeMarkdownFileName(defaultName);
   const safeTent = sanitizeTentDir(tent);
-  const dirPath = safeTent ? path.join(resultsPath, safeTent) : resultsPath;
+  const dirPath = safeTent ? path.join(resultsDirPath(), safeTent) : resultsDirPath();
   const filePath = path.join(dirPath, fileName);
 
   await fs.mkdir(dirPath, { recursive: true });

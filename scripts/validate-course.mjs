@@ -17,7 +17,7 @@ import { pathToFileURL } from "node:url";
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const domain = (file) => import(pathToFileURL(path.join(root, "src/renderer/domain", file)).href);
-const { gradeText } = await domain("textGrader.js");
+const { gradeText, findAvoided } = await domain("textGrader.js");
 const { gradeGraph, expandSpec, isKnownType } = await domain("architecture.js");
 const { parseFill, gradeApi, HTTP_METHODS } = await domain("grading.js");
 const { SUBJECT_ICONS } = await domain("subjects.js");
@@ -38,7 +38,7 @@ let subjectCount = 0;
 let courseCount = 0;
 
 const VISUALS = new Set(["flow", "diagram", "bars", "stats", "compare", "table"]);
-const GRADABLE = new Set(["choice", "sort", "order", "match", "estimate", "number", "fill", "text", "api", "build", "code"]);
+const GRADABLE = new Set(["choice", "sort", "order", "match", "estimate", "number", "fill", "text", "api", "build", "code", "roleplay"]);
 const ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 const err = (where, message) => errors.push(`${where}: ${message}`);
@@ -248,6 +248,20 @@ const CHECKS = {
       }
     }
     if (step.pass != null && !(step.pass >= 1 && step.pass <= (step.concepts || []).length)) err(where, "pass must be between 1 and the number of concepts");
+    if (step.seconds != null && !(Number.isFinite(step.seconds) && step.seconds >= 5 && step.seconds <= 600)) err(where, "seconds must be a number from 5 to 600");
+    if (step.avoid != null && !Array.isArray(step.avoid)) err(where, "avoid must be a list");
+    for (const entry of Array.isArray(step.avoid) ? step.avoid : []) {
+      if (!str(entry.label) || !Array.isArray(entry.any) || entry.any.length === 0) err(where, "each avoid entry needs a label and phrasings");
+      for (const phrase of entry.any || []) {
+        if (phrase.startsWith("re:")) {
+          try {
+            new RegExp(phrase.slice(3), "i");
+          } catch {
+            err(where, `bad regex ${phrase}`);
+          }
+        }
+      }
+    }
     if (!str(step.model)) {
       err(where, "needs a model answer");
     } else if (Array.isArray(step.concepts)) {
@@ -257,6 +271,8 @@ const CHECKS = {
       } else if (result.count < step.concepts.length) {
         warn(where, `model answer misses: ${result.hits.filter((hit) => !hit.hit).map((hit) => hit.label).join("; ")}`);
       }
+      const avoided = findAvoided(step.model, Array.isArray(step.avoid) ? step.avoid : []);
+      if (avoided.length) err(where, `model answer says what it should avoid: ${avoided.map((entry) => entry.label).join("; ")}`);
     }
   },
   api(step, where) {
@@ -317,6 +333,17 @@ const CHECKS = {
   code(step, where) {
     if (!str(step.prompt)) err(where, "needs a prompt");
     if (!Array.isArray(step.tests) || step.tests.length === 0) err(where, "needs tests");
+  },
+  roleplay(step, where) {
+    if (!str(step.prompt)) err(where, "needs a prompt (the scene)");
+    if (!str(step.persona)) err(where, "needs a persona: who the partner plays and how they react");
+    if (!str(step.opener)) err(where, "needs an opener: the partner's first line");
+    if (!Array.isArray(step.goals) || step.goals.length === 0 || step.goals.some((goal) => !str(goal))) err(where, "needs goals: sentences the coach grades");
+    if (step.goals?.length > 5) warn(where, `${step.goals.length} goals is a lot for one scene`);
+    if (step.turns != null && !(Number.isInteger(step.turns) && step.turns >= 1 && step.turns <= 20)) err(where, "turns must be a whole number from 1 to 20");
+    if (step.seconds != null && !(Number.isFinite(step.seconds) && step.seconds >= 5 && step.seconds <= 600)) err(where, "seconds must be a number from 5 to 600");
+    if (step.pass != null && !(Number.isInteger(step.pass) && step.pass >= 1 && step.pass <= (step.goals || []).length)) err(where, "pass must be between 1 and the number of goals");
+    if (!str(step.model)) warn(where, "no model lines: feedback shows only the coach");
   }
 };
 

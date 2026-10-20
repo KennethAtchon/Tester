@@ -8,6 +8,7 @@ import { setThemePreference, themePreference } from "../theme.js";
 import { setSoundEnabled, play as sound } from "../../lib/sound.js";
 import { DAILY_GOALS } from "../../domain/games.js";
 import { openContentFolder } from "../../io/io.js";
+import { partnerStatus, partnerSetKey, partnerClearKey } from "../../io/partner.js";
 import { libraryFilePath } from "../../state/library.js";
 import { navigate, refresh } from "../router.js";
 import { toast } from "../toast.js";
@@ -28,6 +29,35 @@ export function renderSettings(root) {
   Promise.all([progressFilePath(), libraryFilePath()]).then(([progressPath, libraryPath]) => {
     pathLine.textContent = progressPath ? `Progress: ${progressPath} · Your subjects and courses: ${libraryPath}` : "Progress, subjects, and courses are saved in this browser's storage.";
   });
+
+  const keyInput = h("input", {
+    class: "input key-input",
+    type: "password",
+    autocomplete: "off",
+    spellcheck: "false",
+    "aria-label": "Anthropic API key",
+    onKeydown: (event) => event.key === "Enter" && saveKey()
+  });
+  const keyLine = h("p", { class: "muted small" });
+  const showKey = (result) => {
+    if (result.error) {
+      keyLine.textContent = result.error.message;
+      return;
+    }
+    keyLine.textContent = result.hasKey ? `A key is saved on this Mac, encrypted by the keychain. Model: ${result.model}.` : "No key saved yet: Rehearse steps are skipped until you add one.";
+    removeKey.hidden = !result.hasKey;
+    keyInput.placeholder = result.hasKey ? "Paste a new key" : "sk-ant-…";
+  };
+  const saveKey = async () => {
+    const result = await partnerSetKey(keyInput.value);
+    if (!result.error) {
+      keyInput.value = "";
+      toast("Key saved.", { tone: "success" });
+    }
+    showKey(result);
+  };
+  const removeKey = button("Remove", { size: "sm", variant: "ghost", onClick: async () => showKey(await partnerClearKey()) });
+  partnerStatus().then(showKey);
 
   page.append(
     pageHead({ eyebrow: "Preferences", title: "Settings" }),
@@ -59,6 +89,15 @@ export function renderSettings(root) {
       row("Written answers in review", "Include explain-in-your-own-words cards in reviews. Slower, but the strongest retrieval.", segmented([{ value: true, label: "Include" }, { value: false, label: "Skip" }], current.includeLongForm, update("includeLongForm"), { label: "Written answers" }))
     ),
     card(
+      { title: "Practice partner" },
+      row(
+        "Anthropic API key",
+        "In Rehearse steps a model plays the other person, then coaches you. The scene and your lines go to Anthropic's API, billed to your account. The key stays on this Mac, encrypted by the keychain.",
+        h("div", { class: "row-gap" }, keyInput, button("Save key", { size: "sm", variant: "primary", onClick: saveKey }), removeKey)
+      ),
+      keyLine
+    ),
+    card(
       { title: "Look and sound" },
       row("Theme", "Follows your system unless you pick one.", segmented([{ value: "system", label: "System" }, { value: "light", label: "Light" }, { value: "dark", label: "Dark" }], themePreference(), (value) => setThemePreference(value), { label: "Theme" })),
       row(
@@ -76,7 +115,7 @@ export function renderSettings(root) {
     card(
       { title: "Subjects and data" },
       row("Your subjects", "Create subjects, write courses, and move courses between subjects.", button("Manage subjects", { size: "sm", onClick: () => navigate("subjects") })),
-      row("Subjects folder", "Built-in subjects live here. A folder with a subject.json and course folders inside loads on every launch.", button("Open folder", { size: "sm", onClick: openContentFolder })),
+      row("Subjects folder", "Built-in subjects live here. A folder with a subject.json and course folders inside loads on every launch. This folder is part of the app's public repo, so keep private courses out of it: courses you write or import in the app stay on this Mac.", button("Open folder", { size: "sm", onClick: openContentFolder })),
       pathLine,
       h(
         "div",

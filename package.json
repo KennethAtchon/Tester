@@ -16,5 +16,8 @@
   "license": "MIT",
   "devDependencies": {
     "electron": "^41.2.1"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0"
   }
 }

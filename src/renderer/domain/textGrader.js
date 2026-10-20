@@ -144,28 +144,36 @@ function indexPositions(list) {
   return { stems, raws };
 }
 
+// The phrasing of `concept` found in the answer, or null.
+function matchConcept(concept, positions, lowered) {
+  for (const alternative of concept.any || []) {
+    if (alternative.startsWith("re:")) {
+      try {
+        if (new RegExp(alternative.slice(3), "i").test(lowered)) {
+          return alternative;
+        }
+      } catch {
+        // An invalid pattern simply never matches; the validator flags it.
+      }
+      continue;
+    }
+    if (phraseMatches(words(alternative, true).map((word) => word.stem), positions)) {
+      return alternative;
+    }
+  }
+  return null;
+}
+
+function prepare(response) {
+  return { positions: indexPositions(words(response)), lowered: String(response ?? "").toLowerCase() };
+}
+
 // concepts: [{ label, any: ["phrase", "re:regex", ...] }]
 export function gradeText(response, concepts, pass = null) {
-  const positions = indexPositions(words(response));
-  const lowered = String(response ?? "").toLowerCase();
-
+  const { positions, lowered } = prepare(response);
   const hits = concepts.map((concept) => {
-    for (const alternative of concept.any || []) {
-      if (alternative.startsWith("re:")) {
-        try {
-          if (new RegExp(alternative.slice(3), "i").test(lowered)) {
-            return { label: concept.label, hit: true, via: alternative };
-          }
-        } catch {
-          // An invalid pattern simply never matches; the validator flags it.
-        }
-        continue;
-      }
-      if (phraseMatches(words(alternative, true).map((word) => word.stem), positions)) {
-        return { label: concept.label, hit: true, via: alternative };
-      }
-    }
-    return { label: concept.label, hit: false, via: null };
+    const via = matchConcept(concept, positions, lowered);
+    return { label: concept.label, hit: via != null, via };
   });
 
   const needed = pass ?? Math.max(1, Math.ceil(concepts.length * 0.6));
@@ -177,6 +185,13 @@ export function gradeText(response, concepts, pass = null) {
     score: concepts.length ? count / concepts.length : 0,
     passed: count >= needed
   };
+}
+
+// Things a good answer must not say ("don't be nervous"), phrased like
+// concepts. Returns the ones the answer says; any of them fails the answer.
+export function findAvoided(response, avoid) {
+  const { positions, lowered } = prepare(response);
+  return (avoid || []).map((entry, index) => ({ index, label: entry.label, why: entry.why || "", via: matchConcept(entry, positions, lowered) })).filter((entry) => entry.via != null);
 }
 
 // For answers with no concept list (imported question banks): treat the model

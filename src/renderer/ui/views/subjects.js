@@ -176,7 +176,7 @@ function addOptions(subject) {
       { class: "add-option is-static" },
       h("span", { class: "add-option-icon" }, icon("folder", { size: 22 })),
       h("strong", { text: "Drop a file anywhere" }),
-      h("span", null, `While this page is open, dropped files join ${subject.title}. Built-in content lives in the `, h("button", { type: "button", class: "link-btn", onClick: openContentFolder }, "subjects folder"), ".")
+      h("span", null, `While this page is open, dropped files join ${subject.title} and stay on this Mac. Built-in content lives in the `, h("button", { type: "button", class: "link-btn", onClick: openContentFolder }, "subjects folder"), ", which is part of the app's public repo.")
     )
   );
 }

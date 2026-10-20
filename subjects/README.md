@@ -5,7 +5,7 @@ Content is organized as **subjects → courses → units → lessons → steps**
 There are two ways to add content:
 
 - **In the app**: create a subject on **Subjects**, then use **Write a course** to type a course in the [quick text format](#quick-courses-plain-text) with a live preview, or import a file into it. These are saved in your user-data folder (`library.json`), not here.
-- **In this folder**: anything here loads automatically on every launch. This is where the built-in System Design subject lives.
+- **In this folder**: anything here loads automatically on every launch. This is where the built-in System Design subject lives. This folder is committed to the repo, which is public, so keep private courses in the app instead.
 
 Check your work before opening the app:
 
@@ -229,6 +229,54 @@ For math, physics, chemistry: anything with one right number. Learners can type 
 ```
 
 The grader expands common abbreviations (LB, DB, QPS, TTL…), ignores word endings and filler words, and counts a phrasing when all its words appear close together in any order. End a word with `*` to match by prefix (`autoscal*`). `re:` starts a regular expression. Give each concept **3–6 phrasings** a real person might write. `pass` is how many concepts are needed (default 60%). Learners can override a miss they think is wrong. **The `model` answer must pass.**
+
+Three optional fields turn a text step into a practice rep for something said out loud:
+
+```json
+{
+  "seconds": 25,
+  "placeholder": "Type what you'd say, word for word.",
+  "avoid": [
+    { "label": "Tells them not to feel it", "any": ["don't be nervous", "no need to be nervous", "calm down", "relax"], "why": "Being told how not to feel reads as dismissal." }
+  ]
+}
+```
+
+- `seconds` (5–600) shows a countdown. When it runs out, whatever was typed is submitted, even nothing, so the drill trains answering on the spot.
+- `avoid` lists things a good answer must not say, written like concepts. Saying any of them fails the answer and shows its `why`. The model answer must not say any of them.
+- `placeholder` replaces the default hint text inside the answer box.
+
+### roleplay: rehearse a live conversation (model-graded)
+
+A model plays the other person, turn by turn, while the learner types what they would say out loud. When the scene ends, a coach model grades each goal with a quote from the learner's lines, rewrites their weakest line, and names one thing to change. It needs an Anthropic API key in **Settings → Practice partner**; without one, the step is skipped and self-graded.
+
+```json
+{
+  "type": "roleplay",
+  "id": "rehearse-interview-small-talk",
+  "prompt": "You're waiting with another candidate before an interview.",
+  "name": "Sam",
+  "persona": "Sam, 30, is waiting for the same interview and is anxious about it. Short answers until someone shows real interest; opens up about having been laid off if asked a good follow-up.",
+  "opener": "Ugh, I hate waiting rooms.",
+  "goals": [
+    "Acknowledges how Sam feels instead of brushing it off",
+    "Asks a follow-up built from something Sam said",
+    "Shares something about themselves in return"
+  ],
+  "turns": 5,
+  "seconds": 25,
+  "model": "\"Same, the waiting is the worst part. Is this one you really want?\"",
+  "why": "Rehearsal with feedback is what moves a skill from knowing to doing."
+}
+```
+
+- `persona` briefs the model: who it plays and how they react. Write the reactions you want to train against ("cools down if…", "opens up when…"). The app adds its own rules: stay in character, talk like a person, react honestly, never coach.
+- `opener` is the partner's first line. `name` labels their bubbles (default "Partner").
+- `goals` are plain sentences the coach grades against, in the learner's terms. `pass` is how many must be met (default 60%, rounded up).
+- `turns` (1–20, default 6) is how many replies the learner gets; after the last one the partner answers and the coach steps in. **Check** ends the scene early.
+- `seconds` (5–600) puts a clock on each reply, doubled for the first so the scene can be read. When it runs out, whatever was typed is sent; if nothing was, the partner hears a silence and reacts to it.
+- `model` shows example lines after the coaching.
+- Role-play steps aren't added to spaced review: each one is a live conversation.
 
 ### api: design endpoints
 

@@ -8,6 +8,12 @@ export const DAY_MS = 24 * HOUR_MS;
 
 const ROLLOVER_HOUR = 4;
 
+// "m:ss" for a countdown, rounding up so it reaches 0:00 only at the end.
+export function clock(ms) {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
 // "YYYY-MM-DD" for the study day containing ts.
 export function dayKey(ts = Date.now()) {
   const shifted = new Date(ts - ROLLOVER_HOUR * HOUR_MS);

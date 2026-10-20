@@ -10,7 +10,7 @@ import { conceptsFromModel } from "./textGrader.js";
 import { normalizeText, parseNumber, parseQuantity } from "./grading.js";
 import { slugify } from "../lib/util.js";
 
-export const GRADABLE_TYPES = new Set(["choice", "sort", "order", "match", "estimate", "number", "fill", "text", "api", "build", "code"]);
+export const GRADABLE_TYPES = new Set(["choice", "sort", "order", "match", "estimate", "number", "fill", "text", "api", "build", "code", "roleplay"]);
 const STEP_TYPES = new Set(["concept", ...GRADABLE_TYPES]);
 const PALETTE = ["#2f6df6", "#8b5cf6", "#14a37f", "#f0743e", "#e0478a", "#0ea5c6", "#c08a00"];
 
@@ -153,13 +153,15 @@ function stepProblem(step) {
       return Array.isArray(step.palette) && step.rules ? null : "build needs a palette and rules";
     case "code":
       return Array.isArray(step.tests) ? null : "code needs tests";
+    case "roleplay":
+      return str(step.persona) && str(step.opener) && Array.isArray(step.goals) && step.goals.length > 0 ? null : "roleplay needs a persona, an opener, and goals";
     default:
       return null;
   }
 }
 
 function estimateMinutes(steps) {
-  return Math.max(2, Math.round(steps.reduce((sum, step) => sum + (step.type === "concept" ? 0.4 : step.type === "build" ? 4 : step.type === "text" ? 2 : 0.8), 0)));
+  return Math.max(2, Math.round(steps.reduce((sum, step) => sum + (step.type === "concept" ? 0.4 : step.type === "build" || step.type === "roleplay" ? 4 : step.type === "text" ? 2 : 0.8), 0)));
 }
 
 // ── original test-library format ────────────────────────────────────────────

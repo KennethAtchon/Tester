@@ -5,10 +5,11 @@
 import { concept, choice, sort, order, match } from "./basic.js";
 import { estimate, number, fill, text, api, code } from "./inputs.js";
 import { build } from "./build.js";
+import { roleplay } from "./roleplay.js";
 import { plain } from "../../lib/markup.js";
 import { choiceAnswers, formatQuantity, formatNumber, parseFill } from "../../domain/grading.js";
 
-const FACTORIES = { concept, choice, sort, order, match, estimate, number, fill, text, api, build, code };
+const FACTORIES = { concept, choice, sort, order, match, estimate, number, fill, text, api, build, code, roleplay };
 
 export function createExercise(step, ctx) {
   const factory = FACTORIES[step.type];
@@ -30,7 +31,8 @@ export const TYPE_LABELS = {
   text: "Explain",
   api: "Design the API",
   build: "Build",
-  code: "Code"
+  code: "Code",
+  roleplay: "Rehearse"
 };
 
 export function stepPrompt(step) {
@@ -62,6 +64,8 @@ export function answerSummary(step) {
       return step.endpoints.map((endpoint) => `${[].concat(endpoint.method)[0]} ${[].concat(endpoint.path)[0]}`).join("; ");
     case "build":
       return "See the reference design.";
+    case "roleplay":
+      return plain(step.model || step.goals.join("; "));
     default:
       return "";
   }

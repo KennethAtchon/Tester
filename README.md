@@ -45,7 +45,7 @@ Eight units, 33 lessons, and about 390 interactive steps, followed by four Desig
 | Design a Chat App | Intermediate |
 | Design a Video Streaming Platform | Advanced |
 
-Each project has two modes. **Guided** gives feedback and hints as you go. **Interview** gives you 45 minutes with no hints, and all the feedback comes at the end. Either way, **Export for AI review** saves the whole design as Markdown under `results/design-lab/` if you want a second opinion.
+Each project has two modes. **Guided** gives feedback and hints as you go. **Interview** gives you 45 minutes with no hints, and all the feedback comes at the end. Either way, **Export for AI review** saves the whole design as Markdown under `results/design-lab/` in the user-data folder (see [Your data](#your-data)) if you want a second opinion.
 
 ## Exercise types
 
@@ -63,10 +63,11 @@ Each project has two modes. **Guided** gives feedback and hints as you go. **Int
 | Design the API | Pick a method and write a path for each purpose | Ignores `/api` and `/v1` prefixes, plurals, and `{id}`, `:id` or `<id>` styles |
 | Build | Draw an architecture: add components from a palette, then drag from a box's ● to another box to connect them | Checked as a graph: required components, connections, request paths, and connections that must not exist. Each check explains itself, and you can compare against a reference design |
 | Code | Write JavaScript and run it against tests (from imported question banks) | Test cases in a sandboxed child process |
+| Rehearse | A live typed conversation with a model playing the other person, with an optional clock on each reply | A coach model grades each goal with a quote from your lines; you can override any call |
 
-### How grading works, with no AI
+### How grading works
 
-Every grader is deterministic and runs offline in `src/renderer/domain/`:
+Every grader except Rehearse's coach is deterministic and runs offline in `src/renderer/domain/`:
 
 - **Written answers** (`textGrader.js`): each concept lists several phrasings a person might write. The grader expands abbreviations (LB, DB, QPS, TTL…), ignores word endings and filler words, and counts a phrasing when all its words appear close together in any order. A phrasing can also use a `prefix*` wildcard or a regular expression. You get credit for each concept covered and pass at a set threshold. If you think a miss is wrong, you can override it.
 - **Architecture** (`architecture.js`): your diagram is treated as an undirected graph. Rules can require a component (`cache`), a connection (`app ↔ cache`), a path that passes through components in order (`client → lb → app → db`), forbidden shortcuts (`client ↔ db`), and that every component is connected. Aliases such as `db` (any database), `entry` (load balancer or gateway), and `compute` keep rules flexible.
@@ -100,6 +101,7 @@ Around them sit XP and levels, a daily XP goal with a streak (and streak freezes
 - **Hints with a cost.** A hint costs XP and caps the grade.
 - **Mistake notebook.** Every miss with your answer, the right answer and why, your top confusions, and a drill. An entry clears when you get it right on a later day.
 - **Insights.** Calibration, recall by gap, your forgetting curve, the review forecast, and a practice calendar.
+- **Rehearsal with a practice partner.** A Rehearse step is a live conversation: a model plays the other person, then a coach grades each goal with a quote from your lines. It needs an Anthropic API key in **Settings → Practice partner** (stored encrypted by the keychain in the user-data folder). The scene and your lines are sent to Anthropic's API and billed to your account.
 
 ## Adding courses
 
@@ -108,7 +110,7 @@ Every course belongs to a subject. Adding one is a single step:
 - **Write a course** (on a subject's page, or Home when a subject is empty) opens the course editor. Type lessons in plain text, use the **Insert** buttons for a ready-made step of each type, and watch the live preview: lessons, steps, and anything the editor didn't understand, with line numbers. **Ctrl S** saves.
 - **Import a file** on a subject's page: course JSON, an older test file, or plain-text notes (`.txt` or `.md`).
 - **Drop a file anywhere on the window.** On a subject's page it joins that subject; anywhere else, the one you're studying.
-- **The subjects folder** (`subjects/`, or **Settings → Open folder**): a folder with a `subject.json` and courses inside loads automatically on every launch. That's where System Design lives.
+- **The subjects folder** (`subjects/`, or **Settings → Open folder**): a folder with a `subject.json` and courses inside loads automatically on every launch. That's where System Design lives. This folder is part of the public repo, so anything in it can be committed and published: keep private courses in the app, using any of the first three ways.
 
 The plain-text format covers concept cards, multiple choice, typed answers, exact numbers, estimates, sorting, ordering, matching and fill-in-the-blank:
 
@@ -154,10 +156,12 @@ The validator checks structure and also **grades the reference answers**: every 
 
 ## Your data
 
-Two files in Electron's user-data folder, kept out of the repo on purpose (the exact paths are shown in **Settings**):
+Everything you write lives in Electron's user-data folder (`~/Library/Application Support/test-form-maker/` on macOS), kept out of the repo on purpose because the repo is public (the exact paths are shown in **Settings**):
 
 - `learning-progress.json` holds your progress: memory state, review log, mistakes, XP, streak, badges and settings.
 - `library.json` holds what you authored: the subjects you created and the courses you wrote or imported.
+- `results/` holds Markdown exports. They quote your answers and the course's reference answers.
+- `partner-key.bin` holds the practice partner's API key, encrypted by the keychain.
 
 Courses imported before subjects existed move into a **My courses** subject the first time you open this version.
 
@@ -190,4 +194,4 @@ There's no build step: the renderer is vanilla ES modules under `src/renderer/`,
 - `lib/` has DOM helpers, light Markdown (`markup.js`), the file-plus-localStorage persistence used by progress and the library (`persisted.js`), sound effects and confetti.
 - `styles/app.css` is the design system: light and dark tokens, then layout per screen.
 
-The main process exposes a small file API over IPC (`src/preload.js` → `window.testFiles`). It lists the built-in subjects and courses, opens a course file, opens the subjects folder, saves Markdown, loads and saves progress and the library, and runs code (`src/runner/`).
+The main process exposes a small file API over IPC (`src/preload.js` → `window.testFiles`). It lists the built-in subjects and courses, opens a course file, opens the subjects folder, saves Markdown, loads and saves progress and the library, and runs code (`src/runner/`). It also runs the practice partner (`src/partner.js`), which holds the API key so the page never sees it.

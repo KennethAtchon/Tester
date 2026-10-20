@@ -6,7 +6,8 @@ import { rich } from "../../lib/markup.js";
 import { icon } from "../icons.js";
 import { shuffled } from "./basic.js";
 import { parseQuantity, gradeEstimate, formatQuantity, parseNumber, gradeNumber, formatNumber, parseFill, gradeFill, gradeApi, HTTP_METHODS } from "../../domain/grading.js";
-import { gradeText, tokenize } from "../../domain/textGrader.js";
+import { gradeText, findAvoided, tokenize } from "../../domain/textGrader.js";
+import { clock } from "../../lib/time.js";
 import { renderCodeControl } from "../runner.js";
 import { mountCodeEditors } from "../codeEditor.js";
 
@@ -285,13 +286,49 @@ export function fill(step, ctx) {
 
 // ── text: written answer, concept-graded ────────────────────────────────────
 
+// A draining bar for a timed answer (step.seconds). The clock starts when the
+// card first appears and stops when it is answered; if the card leaves the
+// page unanswered, the timer is dropped so it can't submit a later card.
+export function countdown(seconds, onExpire) {
+  const fill = h("span", { class: "timer-fill" });
+  const label = h("span", { class: "timer-label", text: clock(seconds * 1000) });
+  const el = h("div", { class: "timer", role: "timer", "aria-label": `${seconds} seconds to answer` }, h("span", { class: "timer-track" }, fill), label);
+  let startedAt = null;
+  let offPage = 0;
+  const stop = () => {
+    clearInterval(handle);
+    el.classList.add("is-stopped");
+  };
+  const tick = () => {
+    if (!el.isConnected) {
+      offPage += 1;
+      if (startedAt != null && offPage > 5) {
+        clearInterval(handle);
+      }
+      return;
+    }
+    offPage = 0;
+    startedAt ??= Date.now();
+    const leftMs = Math.max(0, seconds * 1000 - (Date.now() - startedAt));
+    fill.style.width = `${(leftMs / (seconds * 1000)) * 100}%`;
+    label.textContent = clock(leftMs);
+    el.classList.toggle("is-low", leftMs <= Math.min(5000, (seconds * 1000) / 3));
+    if (leftMs === 0) {
+      stop();
+      onExpire();
+    }
+  };
+  const handle = setInterval(tick, 100);
+  return { el, stop };
+}
+
 export function text(step, ctx) {
-  const state = { value: "", overrides: new Map(), result: null, locked: false };
+  const state = { value: "", overrides: new Map(), avoidOverrides: new Set(), result: null, locked: false, expired: false };
   const counter = h("span", { class: "text-count", text: "0 words" });
   const area = h("textarea", {
     class: "input text-answer",
     rows: 5,
-    placeholder: "Explain in your own words. Partial answers still earn credit.",
+    placeholder: step.placeholder || "Explain in your own words. Partial answers still earn credit.",
     "aria-label": "Your answer",
     onInput: (event) => {
       state.value = event.target.value;
@@ -300,7 +337,18 @@ export function text(step, ctx) {
       ctx.onChange();
     }
   });
-  const el = h("div", { class: "text-ex" }, area, h("div", { class: "text-foot" }, counter, step.concepts?.length ? h("span", { class: "muted small", text: `A strong answer covers ${step.concepts.length} ideas.` }) : null));
+  // Time running out submits whatever is typed, even nothing: under a clock,
+  // freezing is the miss being trained.
+  const timer = step.seconds > 0
+    ? countdown(step.seconds, () => {
+        if (!state.locked) {
+          state.expired = true;
+          area.readOnly = true;
+          ctx.submit();
+        }
+      })
+    : null;
+  const el = h("div", { class: "text-ex" }, timer?.el, area, h("div", { class: "text-foot" }, counter, step.concepts?.length ? h("span", { class: "muted small", text: `A strong answer covers ${step.concepts.length} ideas.` }) : null));
 
   const mode = step.concepts?.length ? "concepts" : step.rubric?.length ? "rubric" : "self";
 
@@ -309,8 +357,10 @@ export function text(step, ctx) {
       const graded = gradeText(state.value, step.concepts, step.pass);
       const hits = graded.hits.map((entry, index) => (state.overrides.has(index) ? { ...entry, hit: state.overrides.get(index), overridden: true } : entry));
       const count = hits.filter((entry) => entry.hit).length;
-      const passed = count >= graded.needed;
-      return { hits, count, needed: graded.needed, score: count / hits.length, passed };
+      // Saying a phrase from step.avoid fails the answer however much else it covers.
+      const avoided = findAvoided(state.value, step.avoid).map((entry) => ({ ...entry, overridden: state.avoidOverrides.has(entry.index) }));
+      const passed = count >= graded.needed && avoided.every((entry) => entry.overridden);
+      return { hits, count, needed: graded.needed, avoided, score: count / hits.length, passed };
     }
     if (mode === "rubric") {
       const have = new Set(tokenize(state.value));
@@ -331,13 +381,13 @@ export function text(step, ctx) {
       return { correct: null, score: null, verdict: "self", response: state.value };
     }
     const verdict = graded.passed ? "correct" : graded.count > 0 ? "partial" : "wrong";
-    return { correct: graded.passed, score: graded.score, verdict, response: state.value, detail: graded };
+    return { correct: graded.passed, score: graded.score, verdict, response: state.value, detail: graded, timedOut: state.expired };
   };
 
   return {
     el,
     focus: () => area.focus(),
-    ready: () => state.value.trim().split(/\s+/).filter(Boolean).length >= 2,
+    ready: () => state.expired || state.value.trim().split(/\s+/).filter(Boolean).length >= 2,
     check() {
       state.result = toResult(evaluate());
       return state.result;
@@ -345,9 +395,43 @@ export function text(step, ctx) {
     show() {
       state.locked = true;
       area.readOnly = true;
+      timer?.stop();
     },
     explain(result) {
       const block = h("div", { class: "explain-block" });
+      if (result.timedOut) {
+        block.append(h("p", { class: "timed-out", text: state.value.trim() ? "Time's up: this is what you had." : "Time's up before you typed anything. Next time, type the first thing that comes to mind; a plain answer beats silence." }));
+      }
+      if (result.detail?.avoided?.length) {
+        block.append(
+          h("div", { class: "explain-label", text: "Avoid" }),
+          h(
+            "ul",
+            { class: "concept-checks" },
+            result.detail.avoided.map((entry) =>
+              h(
+                "li",
+                { class: entry.overridden ? "is-hit" : "is-miss" },
+                h("span", { class: "check-mark" }, icon(entry.overridden ? "check" : "x", { size: 14 })),
+                h("span", { class: "check-text" }, entry.label, entry.why && h("span", { class: "rule-why", text: ` ${entry.why}` }), entry.overridden && h("em", { class: "muted", text: " (your call)" })),
+                h(
+                  "button",
+                  {
+                    type: "button",
+                    class: "link-btn",
+                    title: entry.overridden ? "Count this against the answer" : "The grader misread this",
+                    onClick: () => {
+                      state.avoidOverrides[entry.overridden ? "delete" : "add"](entry.index);
+                      ctx.regrade?.(toResult(evaluate()));
+                    }
+                  },
+                  entry.overridden ? "I did say it" : "I didn't say that"
+                )
+              )
+            )
+          )
+        );
+      }
       if (result.detail) {
         block.append(
           h("div", { class: "explain-label", text: mode === "concepts" ? `Ideas covered · ${result.detail.count} of ${result.detail.hits.length} (need ${result.detail.needed})` : `Rubric · ${result.detail.count} of ${result.detail.hits.length}` }),

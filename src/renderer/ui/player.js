@@ -29,7 +29,7 @@ import { questEvent } from "../state/quests.js";
 import { previewIntervals, GRADES } from "../domain/fsrs.js";
 import { CONFIDENCE_LEVELS } from "../domain/grading.js";
 import { gradeLetter } from "../domain/rewards.js";
-import { formatInterval } from "../lib/time.js";
+import { formatInterval, clock } from "../lib/time.js";
 import { saveMarkdownFile } from "../io/io.js";
 
 let active = null;
@@ -209,6 +209,7 @@ function newCard(entry) {
     recallFirst: entry.mode === "review" && step.type === "choice" && (settings().recallFirst === "always" || (settings().recallFirst === "seen" && !card.isNew)),
     regrade: (result) => {
       card.result = result;
+      card.explainNode = null;
       paintCard();
       paintBar();
     }
@@ -1085,11 +1086,6 @@ function handleKey(event) {
 
 function comboMultiplier() {
   return 1 + Math.min(3, Math.floor(active.combo / 3));
-}
-
-function clock(ms) {
-  const total = Math.max(0, Math.ceil(ms / 1000));
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
 function pick(list) {
