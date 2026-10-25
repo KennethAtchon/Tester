@@ -1,0 +1,11 @@
+[project]
+name = "recall-voice-engine"
+version = "0.1.0"
+description = "Talk mode's voice: official Kokoro (misaki pronunciation) behind a JSON-lines pipe, started by src/voice.js."
+requires-python = ">=3.10,<3.13"
+dependencies = [
+  "kokoro==0.9.4",
+  "soundfile>=0.12",
+  # misaki fetches its spaCy model with pip on first use.
+  "pip>=24",
+]

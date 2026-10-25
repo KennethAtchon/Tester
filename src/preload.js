@@ -12,6 +12,16 @@ contextBridge.exposeInMainWorld("testFiles", {
   partnerClearKey: () => ipcRenderer.invoke("partner:clearKey"),
   partnerReply: (payload) => ipcRenderer.invoke("partner:reply", payload),
   partnerCoach: (payload) => ipcRenderer.invoke("partner:coach", payload),
+  voiceWarm: (payload) => ipcRenderer.invoke("voice:warm", payload),
+  voiceFace: (name) => ipcRenderer.invoke("voice:face", name),
+  voiceSpeak: (payload) => ipcRenderer.invoke("voice:speak", payload),
+  voiceTranscribe: (payload) => ipcRenderer.invoke("voice:transcribe", payload),
+  voiceMicAccess: () => ipcRenderer.invoke("voice:mic"),
+  onVoiceProgress: (listener) => {
+    const handler = (_event, progress) => listener(progress);
+    ipcRenderer.on("voice:progress", handler);
+    return () => ipcRenderer.removeListener("voice:progress", handler);
+  },
   loadProgress: () => ipcRenderer.invoke("progress:load"),
   saveProgress: (content) => ipcRenderer.invoke("progress:save", content),
   progressPath: () => ipcRenderer.invoke("progress:path"),

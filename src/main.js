@@ -4,6 +4,7 @@ const path = require("node:path");
 const { runCode } = require("./runner/runCode");
 const { runExec } = require("./runner/runExec");
 const partner = require("./partner");
+const voice = require("./voice");
 
 const appRoot = path.dirname(__dirname);
 const subjectsPath = path.join(appRoot, "subjects");
@@ -183,6 +184,12 @@ ipcMain.handle("partner:setKey", async (_event, key) => partner.setKey(key));
 ipcMain.handle("partner:clearKey", async () => partner.clearKey());
 ipcMain.handle("partner:reply", async (_event, payload) => partner.reply(payload));
 ipcMain.handle("partner:coach", async (_event, payload) => partner.coach(payload));
+
+ipcMain.handle("voice:warm", async (event, payload) => voice.warm(payload, (progress) => event.sender.send("voice:progress", progress)));
+ipcMain.handle("voice:face", async (_event, name) => voice.face(name));
+ipcMain.handle("voice:speak", async (_event, payload) => voice.speak(payload));
+ipcMain.handle("voice:transcribe", async (_event, payload) => voice.transcribe(payload));
+ipcMain.handle("voice:mic", async () => voice.micAccess());
 
 // progress:* and library:* each load and save one JSON file.
 for (const [name, filePath] of [["progress", progressFilePath], ["library", libraryFilePath]]) {

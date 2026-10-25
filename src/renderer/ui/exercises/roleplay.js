@@ -3,13 +3,20 @@
 // judges each of step.goals with a quote from the learner's lines. Same
 // interface as basic.js. Nothing is graded locally: no word list can tell a
 // warm reply from a cold one.
+//
+// Talk mode puts a 3D face on the partner: she says her lines out loud and the
+// learner answers out loud. The transcript goes through say() like a typed
+// line, so the partner, the clock and the coach behave the same in both modes.
 
 import { h } from "../../lib/dom.js";
 import { rich, plain } from "../../lib/markup.js";
 import { icon } from "../icons.js";
 import { button } from "../components.js";
 import { countdown } from "./inputs.js";
+import { createFace } from "../face.js";
+import { settings, persist } from "../../state/progress.js";
 import { partnerStatus, partnerReply, partnerCoach } from "../../io/partner.js";
+import { voiceWarm, voiceTranscribe, voiceMicAccess, onVoiceProgress, listen } from "../../io/voice.js";
 
 export const DEFAULT_TURNS = 6;
 
@@ -52,16 +59,25 @@ export function roleplay(step, ctx) {
   const turnLabel = h("span");
   const compose = h("div", { class: "chat-compose" }, input, send);
   const foot = h("div", { class: "chat-foot" }, turnLabel, h("span", { text: "Check ends the scene and brings in the coach." }));
+  const talkSlot = h("div", { class: "talk-switch" });
+  const faceView = h("div", { class: "face-view" });
+  const faceStatus = h("div", { class: "face-status", role: "status", "aria-live": "polite" });
+  const faceStage = h("div", { class: "face-stage", hidden: true }, faceView, faceStatus);
   const el = h(
     "div",
     { class: "roleplay" },
-    h("div", { class: "roleplay-goals" }, h("div", { class: "explain-label", text: "Goals" }), h("ul", null, step.goals.map((goal) => h("li", { text: goal })))),
+    h("div", { class: "roleplay-goals" }, h("div", { class: "roleplay-goals-head" }, h("div", { class: "explain-label", text: "Goals" }), talkSlot), h("ul", null, step.goals.map((goal) => h("li", { text: goal })))),
+    faceStage,
     log,
     notice,
     timerSlot,
     compose,
     foot
   );
+
+  // Talk mode. `run` goes up whenever the mode changes or the scene ends, so a
+  // step still in flight (voicing, listening, transcribing) sees it's stale.
+  const talk = { on: false, face: null, take: null, phase: "idle", error: null, progress: null, level: 0, run: 0, watch: null, seen: false };
 
   const paintLog = () => {
     log.replaceChildren(
@@ -90,30 +106,259 @@ export function roleplay(step, ctx) {
 
   const paintCompose = () => {
     const over = state.locked || state.hasKey === false || yours() >= turns;
-    compose.hidden = over;
+    compose.hidden = over || talk.on;
     foot.hidden = over;
     input.disabled = over;
     send.disabled = over || state.hasKey !== true || state.waiting || Boolean(state.error) || !input.value.trim();
     turnLabel.textContent = `Reply ${Math.min(yours() + 1, turns)} of ${turns}`;
   };
 
+  const paintTalk = () => {
+    talkSlot.replaceChildren();
+    if (state.hasKey === true && !state.locked) {
+      talkSlot.append(
+        talk.on
+          ? button("Type instead", { size: "sm", iconName: "pencil", onClick: () => setTalk(false) })
+          : button("Talk face to face", { size: "sm", iconName: "mic", onClick: () => setTalk(true), title: `See ${name} and talk out loud. Speech is made and transcribed on this computer.` })
+      );
+    }
+    faceStage.hidden = !talk.on;
+    faceStatus.replaceChildren();
+    if (!talk.on) {
+      return;
+    }
+    if (talk.error) {
+      faceStatus.append(h("div", { class: "chat-error" }, icon("alert", { size: 16 }), h("span", { text: talk.error.message }), button("Try again", { size: "sm", onClick: () => retryTalk() })));
+      return;
+    }
+    const percent = talk.progress?.total ? ` ${Math.floor((talk.progress.loaded / talk.progress.total) * 100)}%` : "";
+    const lines = {
+      loading: `Getting ${name}'s face and voice ready…${percent}`,
+      speaking: `${name} is talking…`,
+      listening: "Your turn: say it out loud.",
+      hearing: "Listening…",
+      transcribing: "Got it…",
+      idle: ""
+    };
+    const text = state.waiting ? `${name} is thinking…` : lines[talk.phase];
+    faceStatus.append(h("span", { class: "face-status-text", text }));
+    if (talk.phase === "loading" && !talk.face) {
+      faceStatus.append(h("span", { class: "muted face-status-note", text: "The first time sets up her voice: about 1 GB, a few minutes." }));
+    }
+    if (talk.phase === "listening" || talk.phase === "hearing") {
+      faceStatus.append(
+        h("span", { class: "voice-level", "aria-hidden": "true" }, h("span", { class: "voice-level-fill", style: { width: `${Math.min(100, Math.round(talk.level * 800))}%` } })),
+        button("Done", { size: "sm", variant: "primary", onClick: () => talk.take?.stop(), title: "Finish your reply now" })
+      );
+    }
+  };
+
   const paint = () => {
     paintLog();
     paintNotice();
     paintCompose();
+    paintTalk();
     if (!foot.hidden && foot.isConnected) {
       foot.scrollIntoView({ block: "nearest" });
     }
   };
 
   // Each reply gets the clock; the first gets double, for reading the scene.
+  // In Talk mode it runs while the learner may speak, and running out ends
+  // the take: whatever was said is sent, or a silence.
   const startClock = () => {
     state.timer?.stop();
     timerSlot.replaceChildren();
     if (step.seconds > 0 && state.hasKey && !state.locked) {
-      state.timer = countdown(step.seconds * (yours() === 0 ? 2 : 1), () => say({ silent: true }));
+      state.timer = countdown(step.seconds * (yours() === 0 ? 2 : 1), () => (talk.on ? talk.take?.stop() : say({ silent: true })));
       timerSlot.append(state.timer.el);
     }
+  };
+
+  const stopClock = () => {
+    state.timer?.stop();
+    timerSlot.replaceChildren();
+  };
+
+  const lastPartnerLine = () => [...state.lines].reverse().find((line) => line.from === "partner")?.text || "";
+
+  const failTalk = (error) => {
+    talk.error = error;
+    talk.phase = "idle";
+    paint();
+  };
+
+  // She says `text`, then the learner's turn starts.
+  const speakThenHear = async (text) => {
+    const run = talk.run;
+    talk.phase = "speaking";
+    talk.face.listening(null);
+    paint();
+    const spoken = await talk.face.say(text);
+    if (run !== talk.run) {
+      return;
+    }
+    if (spoken.error) {
+      failTalk(spoken.error);
+      return;
+    }
+    await hear();
+  };
+
+  const hear = async () => {
+    const run = talk.run;
+    talk.phase = "listening";
+    talk.level = 0;
+    paint();
+    let take;
+    try {
+      take = await listen({
+        onLevel: (level) => {
+          talk.level = level;
+          const fill = faceStatus.querySelector(".voice-level-fill");
+          if (fill) {
+            fill.style.width = `${Math.min(100, Math.round(level * 800))}%`;
+          }
+        },
+        onSpeech: () => {
+          talk.phase = "hearing";
+          paintTalk();
+        }
+      });
+    } catch (error) {
+      failTalk({ code: "mic", message: `The microphone didn't start: ${error.message}` });
+      return;
+    }
+    if (run !== talk.run) {
+      take.stop();
+      return;
+    }
+    talk.take = take;
+    talk.face.listening(take.analyser);
+    startClock();
+    const { pcm, spoke } = await take.done;
+    talk.take = null;
+    if (run !== talk.run) {
+      return;
+    }
+    stopClock();
+    talk.face.listening(null);
+    if (!spoke) {
+      talk.phase = "idle";
+      say({ silent: true });
+      return;
+    }
+    talk.phase = "transcribing";
+    paint();
+    const heard = await voiceTranscribe(pcm);
+    if (run !== talk.run) {
+      return;
+    }
+    if (heard.error) {
+      failTalk(heard.error);
+      return;
+    }
+    talk.phase = "idle";
+    input.value = heard.text;
+    say({ silent: !heard.text });
+  };
+
+  // Ends whatever Talk mode is doing; the face stays on screen unless `drop`.
+  const haltTalk = ({ drop = false } = {}) => {
+    talk.run += 1;
+    talk.take?.stop();
+    talk.take = null;
+    talk.face?.interrupt();
+    talk.face?.listening(null);
+    talk.phase = "idle";
+    if (drop) {
+      talk.face?.destroy();
+      talk.face = null;
+      clearInterval(talk.watch);
+      talk.watch = null;
+    }
+  };
+
+  // The player has no unmount hook, so Talk mode watches for its card leaving
+  // the page (next step, lesson closed) to let go of the microphone and the face.
+  const watchForExit = () => {
+    talk.watch ||= setInterval(() => {
+      if (el.isConnected) {
+        talk.seen = true;
+      } else if (talk.seen) {
+        haltTalk({ drop: true });
+      }
+    }, 1000);
+  };
+
+  const setTalk = async (on) => {
+    haltTalk({ drop: !on });
+    talk.on = on;
+    talk.error = null;
+    settings().talk = on;
+    persist();
+    if (!on) {
+      paint();
+      if (!state.waiting && !state.error && !state.locked && yours() < turns) {
+        startClock();
+        input.focus();
+      }
+      return;
+    }
+    stopClock();
+    watchForExit();
+    const run = talk.run;
+    talk.phase = "loading";
+    paint();
+    if (!talk.face) {
+      const mic = await voiceMicAccess();
+      if (run !== talk.run) {
+        return;
+      }
+      if (mic.error || !mic.granted) {
+        failTalk(mic.error || { code: "mic", message: "Recall isn't allowed to use the microphone. Turn it on in System Settings → Privacy & Security → Microphone, then try again." });
+        return;
+      }
+      // Her face shows straight away; her voice (set up the first time) follows.
+      const face = await createFace(faceView, { name });
+      if (run !== talk.run || face.error) {
+        face.destroy?.();
+        if (face.error && run === talk.run) {
+          failTalk(face.error);
+        }
+        return;
+      }
+      const stopProgress = onVoiceProgress((progress) => {
+        talk.progress = progress;
+        paintTalk();
+      });
+      const ready = await voiceWarm({ voice: face.voice });
+      stopProgress();
+      talk.progress = null;
+      if (run !== talk.run || ready.error) {
+        face.destroy();
+        if (ready.error && run === talk.run) {
+          failTalk(ready.error);
+        }
+        return;
+      }
+      talk.face = face;
+    }
+    talk.phase = "idle";
+    paint();
+    if (!state.waiting && !state.error && !state.locked && yours() < turns) {
+      speakThenHear(lastPartnerLine());
+    }
+  };
+
+  // She repeats her last line and the learner gets the turn again.
+  const retryTalk = () => {
+    if (!talk.face) {
+      setTalk(true);
+      return;
+    }
+    talk.error = null;
+    speakThenHear(lastPartnerLine());
   };
 
   const answer = async () => {
@@ -134,6 +379,20 @@ export function roleplay(step, ctx) {
     paint();
     ctx.onChange();
     if (result.error) {
+      return;
+    }
+    if (talk.on && talk.face) {
+      if (yours() >= turns) {
+        const run = talk.run;
+        talk.phase = "speaking";
+        paint();
+        await talk.face.say(result.text);
+        if (run === talk.run) {
+          ctx.submit();
+        }
+        return;
+      }
+      speakThenHear(result.text);
       return;
     }
     if (yours() >= turns) {
@@ -171,7 +430,11 @@ export function roleplay(step, ctx) {
     state.statusError = result.error || null;
     paint();
     ctx.onChange();
-    startClock();
+    if (state.hasKey && settings().talk) {
+      setTalk(true);
+    } else {
+      startClock();
+    }
   });
   paint();
 
@@ -181,6 +444,7 @@ export function roleplay(step, ctx) {
     ready: () => state.hasKey === false || (state.hasKey === true && !state.waiting && yours() >= 1),
     async check() {
       state.locked = true;
+      haltTalk();
       state.timer?.stop();
       timerSlot.replaceChildren();
       if (state.hasKey === false) {
@@ -206,6 +470,7 @@ export function roleplay(step, ctx) {
     },
     show() {
       state.locked = true;
+      haltTalk();
       paint();
     },
     explain(result) {

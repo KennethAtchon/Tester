@@ -25,7 +25,8 @@ export const DEFAULT_SETTINGS = {
   includeLongForm: true, // written answers in review sessions
   sound: true,
   theme: "system", // system | light | dark
-  practiceScope: "subject" // subject | all — which subjects the games draw from
+  practiceScope: "subject", // subject | all — which subjects the games draw from
+  talk: false // Rehearse scenes open in Talk mode (face and voice) instead of typing
 };
 
 let data = null;
